@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Gutter — icono blanco</title>
+  <desc id="desc">Icono monocromo blanco de Gutter con fondo transparente.</desc>
+  <g id="simbolo">
+    <rect x="194.000" y="194.000" width="349.800" height="171.720" rx="11.448" fill="#FFFFFF"/>
+    <rect x="594.680" y="194.000" width="235.320" height="171.720" rx="11.448" fill="#FFFFFF"/>
+    <rect x="194.000" y="416.600" width="209.880" height="178.080" rx="11.448" fill="#FFFFFF"/>
+    <rect x="454.760" y="467.480" width="375.240" height="127.200" rx="11.448" fill="#FFFFFF"/>
+    <rect x="194.000" y="645.560" width="636.000" height="184.440" rx="11.448" fill="#FFFFFF"/>
+  </g>
+</svg>

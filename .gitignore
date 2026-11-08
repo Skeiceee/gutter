@@ -1,0 +1,11 @@
+# Binarios de desarrollo
+/Gutter
+/Gutter.exe
+/Gutter-debug.exe
+/gutter
+/gutter.exe
+*.test
+
+# Archivos temporales de desarrollo
+.*.png
+*.tmp

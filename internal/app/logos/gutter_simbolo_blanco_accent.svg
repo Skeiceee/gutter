@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Gutter — símbolo blanco con acento azul</title>
+  <desc id="desc">Símbolo de Gutter en blanco con la barra central azul.</desc>
+  <g id="simbolo">
+    <rect x="80.000" y="80.000" width="475.200" height="233.280" rx="15.552" fill="#FFFFFF"/>
+    <rect x="624.320" y="80.000" width="319.680" height="233.280" rx="15.552" fill="#FFFFFF"/>
+    <rect x="80.000" y="382.400" width="285.120" height="241.920" rx="15.552" fill="#FFFFFF"/>
+    <rect x="434.240" y="451.520" width="509.760" height="172.800" rx="15.552" fill="#007ACC"/>
+    <rect x="80.000" y="693.440" width="864.000" height="250.560" rx="15.552" fill="#FFFFFF"/>
+  </g>
+</svg>
