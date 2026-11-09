@@ -1,5 +1,12 @@
 # Gutter
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="internal/app/logos/gutter_logo_principal_blanco_accent.svg">
+    <img src="internal/app/logos/gutter_logo_principal.svg" alt="Gutter" width="440">
+  </picture>
+</p>
+
 Lector de cómics `.cbr`/`.cbz` de código abierto, escrito en Go con
 [Fyne](https://fyne.io/). El nombre hace referencia al *gutter*, el espacio
 entre viñetas.
