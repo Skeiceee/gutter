@@ -9,7 +9,8 @@
 
 <p align="center">
   <a href="https://skeiceee.github.io/gutter/"><b>Sitio web</b></a> ·
-  <a href="https://github.com/Skeiceee/gutter/releases/latest"><b>Descargar</b></a>
+  <a href="https://github.com/Skeiceee/gutter/releases/latest"><b>Descargar</b></a> ·
+  <a href="CHANGELOG.md"><b>Novedades</b></a>
 </p>
 
 Lector de cómics `.cbr`/`.cbz` de código abierto, escrito en Go con
@@ -82,6 +83,7 @@ gutter/
 ├── assets/                 # Recursos de compilación (icono .ico y .rc).
 ├── go.mod / go.sum
 ├── README.md
+├── CHANGELOG.md            # Novedades de cada versión publicada.
 └── internal/
     ├── app/                # Lógica principal de la aplicación (paquete app).
     │   ├── app.go          # Struct gutterApp, NewGutterApp, Run(), arranque.
