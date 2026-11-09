@@ -65,6 +65,8 @@ func (g *gutterApp) installMenu() {
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Ajustar al ancho (0)", g.fitWidth),
 		fyne.NewMenuItem("Zoom 100 % (1)", g.zoom100),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Opciones de lectura…", g.showReadingOptions),
 	}
 
 	translationItems := []*fyne.MenuItem{
@@ -102,13 +104,55 @@ func (g *gutterApp) showAbout() {
 	)
 	description.Wrapping = fyne.TextWrapWord
 
+	statsLabel := widget.NewLabel(g.cacheSummary())
+	statsLabel.Wrapping = fyne.TextWrapWord
+
+	status := widget.NewLabel("")
+	status.Importance = widget.LowImportance
+
+	limitSelect := widget.NewSelect(diskLimitLabels, nil)
+	limitSelect.SetSelected(diskLimitLabel(g.diskLimitMB()))
+	limitSelect.OnChanged = func(label string) {
+		mb := parseDiskLimit(label)
+		if g.prefs != nil {
+			g.prefs.SetInt(prefDiskCacheLimitMB, mb)
+		}
+		if g.diskCache != nil {
+			g.diskCache.SetLimit(int64(mb) << 20)
+		}
+		statsLabel.SetText(g.cacheSummary())
+	}
+
+	clearButton := widget.NewButton("Vaciar caché", func() {
+		g.clearCaches()
+		statsLabel.SetText(g.cacheSummary())
+		status.SetText("Caché vaciada.")
+	})
+	clearButton.Importance = widget.LowImportance
+
+	cacheControls := container.NewBorder(
+		nil, nil,
+		widget.NewLabel("Límite de disco:"),
+		nil,
+		limitSelect,
+	)
+
 	content := container.NewVBox(
 		container.NewCenter(logo),
 		container.NewCenter(title),
 		description,
+		widget.NewSeparator(),
+		sectionLabel("Caché y memoria"),
+		statsLabel,
+		cacheControls,
+		container.NewCenter(clearButton),
+		status,
 	)
-	d := dialog.NewCustom("Acerca de Gutter", "Cerrar", content, g.window)
-	d.Resize(fyne.NewSize(460, 320))
+
+	scroll := container.NewVScroll(content)
+	scroll.SetMinSize(fyne.NewSize(460, 360))
+	d := dialog.NewCustom("Acerca de Gutter", "Cerrar", scroll, g.window)
+	d.Resize(fyne.NewSize(540, 520))
 	g.showDialog(d)
 }
 

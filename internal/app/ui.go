@@ -182,6 +182,10 @@ func (g *gutterApp) showPage() {
 	g.translateSeq.Add(1)
 	g.translating = false
 	g.clearTranslation()
+	g.clearPageError()
+	if g.pageImage.Image != nil {
+		g.scroll.Show()
+	}
 
 	if g.pageIndex < 0 {
 		g.pageIndex = 0
@@ -248,6 +252,7 @@ func (g *gutterApp) showPage() {
 			}
 
 			g.loading = false
+			g.pageFailed = false
 			g.spread = spread
 			g.half = half
 			g.shownComic = comic
@@ -256,6 +261,7 @@ func (g *gutterApp) showPage() {
 			g.shownSpread = spread
 			g.readScanned.Store(0)
 			g.readTotal.Store(0)
+			g.pageErrorState.Hide()
 
 			// Optimización crítica: reutilizamos el canvas.Image existente.
 			g.pageImage.Image = img
@@ -271,44 +277,13 @@ func (g *gutterApp) showPage() {
 	}()
 	g.window.SetTitle(fmt.Sprintf("%s — %s", appTitle, filepath.Base(g.comic.Path)))
 
-	total := len(g.comic.Pages)
-	if g.pageIndex < 0 || g.pageIndex >= total {
-		g.pageIndex = 0
-	}
-
-	if g.loading {
-		scanned := int(g.readScanned.Load())
-		readTotal := int(g.readTotal.Load())
-		if scanned > 0 && readTotal > 0 {
-			g.progress.SetText(fmt.Sprintf(
-				"RAR sólido %d/%d · Esc para cancelar",
-				scanned, readTotal,
-			))
-		} else {
-			g.progress.SetText(fmt.Sprintf(
-				"Cargando página %d de %d… · Esc para cancelar",
-				g.pageIndex+1, total,
-			))
-		}
-		g.prevButton.Disable()
-		g.nextButton.Disable()
-		return
-	}
-
-	progress := fmt.Sprintf("Página %d de %d", g.pageIndex+1, total)
-	if g.singlePage && g.spread {
-		progress += fmt.Sprintf("  ·  %d/2", g.half+1)
-	}
-	g.progress.SetText(progress)
-
-	canPrev := g.pageIndex > 0 || (g.singlePage && g.spread && g.half == 1)
-	canNext := g.pageIndex < total-1 || (g.singlePage && g.spread && g.half == 0)
-	toggleEnabled(g.prevButton, canPrev)
-	toggleEnabled(g.nextButton, canNext)
+	// updateControls centraliza el texto de progreso (incluye el marcador de
+	// error) y el estado de los botones.
+	g.updateControls()
 }
 
-// reportLoadError vuelve al hilo de Fyne solo si la carga sigue vigente y no
-// fue cancelada por el usuario o por un cambio de página.
+// reportLoadError muestra un marcador dentro del área de lectura. No abre un
+// diálogo modal: el usuario puede seguir navegando o reintentar esa página.
 func (g *gutterApp) reportLoadError(seq uint64, ctx context.Context, err error) {
 	if ctx != nil && ctx.Err() != nil {
 		return
@@ -320,9 +295,59 @@ func (g *gutterApp) reportLoadError(seq uint64, ctx context.Context, err error) 
 		g.loading = false
 		g.readScanned.Store(0)
 		g.readTotal.Store(0)
+		g.pageFailed = true
+		g.spread = false
+		g.half = 0
+
+		total := 0
+		if g.comic != nil {
+			total = len(g.comic.Pages)
+		}
+		if g.pageIndex >= 0 && total > 0 {
+			g.pageErrorLabel.SetText(fmt.Sprintf(
+				"No se pudo mostrar la página %d de %d",
+				g.pageIndex+1, total,
+			))
+		} else {
+			g.pageErrorLabel.SetText("No se pudo mostrar la página")
+		}
+		g.pageErrorDetail.SetText(err.Error())
+		g.pageErrorState.Show()
+		g.scroll.Hide()
+		g.emptyState.Hide()
 		g.updateControls()
-		dialog.ShowError(fmt.Errorf("No se pudo mostrar la página.\n\n%w", err), g.window)
 	})
+}
+
+// reportOpenError mantiene el diálogo para los fallos al abrir un archivo:
+// en ese caso no hay una página concreta que sustituir por un marcador.
+func (g *gutterApp) reportOpenError(seq uint64, err error) {
+	if err == nil {
+		return
+	}
+	fyne.Do(func() {
+		if seq != g.pageSeq.Load() {
+			return
+		}
+		g.loading = false
+		g.clearPageError()
+		g.updateControls()
+		dialog.ShowError(fmt.Errorf("No se pudo abrir el cómic.\n\n%w", err), g.window)
+	})
+}
+
+func (g *gutterApp) clearPageError() {
+	g.pageFailed = false
+	if g.pageErrorState != nil {
+		g.pageErrorState.Hide()
+	}
+}
+
+func (g *gutterApp) retryPage() {
+	if g.comic == nil {
+		return
+	}
+	g.showPage()
 }
 
 // toggleEnabled evita refrescos de widget innecesarios en cada página.

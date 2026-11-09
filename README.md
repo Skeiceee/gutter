@@ -53,8 +53,17 @@ caché LRU en RAM.
   barra inferior trunca el progreso y oculta los controles de zoom para evitar
   solapamientos.
 - Corte de doble página con `SubImage` y selector Occidental/Manga.
-- Caché LRU de 96 MiB con *single-flight*, prefetch de la página anterior y
-  siguiente, y cancelación de lecturas al cambiar rápidamente de página.
+- Caché LRU de 96 MiB con *single-flight* y precarga de las tres páginas
+  siguientes más la anterior; cancelación de lecturas al cambiar de página.
+- **Caché en disco opcional** (512 MB por defecto, configurable en «Acerca de»):
+  reabre índices ya vistos sin recorrer el contenedor y conserva páginas
+  decodificadas entre sesiones. Se puede vaciar desde el mismo diálogo.
+- **Apertura tolerante a errores:** verificación rápida de integridad (estructura
+  + primera, central y última página) con aviso, y marcador «Reintentar» por
+  página en vez de bloquear la lectura.
+- **Orden de páginas configurable** (natural o alfabético estricto) y filtro de
+  basura (`__MACOSX`, `.DS_Store`, archivos ocultos) en «Ver > Opciones de
+  lectura…».
 - **RAR sólidos:** progreso del recorrido secuencial en la barra inferior y
   `Esc` para cancelar un salto largo, volviendo a la última página dibujada.
 - Caché de miniaturas independiente (24 MiB) con reducción a resolución de
@@ -82,12 +91,16 @@ gutter/
     │   ├── library.go      # Progreso persistente, recientes, bienvenida.
     │   ├── navigation.go   # Zoom, scroll, paginación, prefetch, updateControls.
     │   ├── run.go          # Función Run() (arranque de la app).
+    │   ├── settings.go     # Preferencias de lectura, caché de disco y «Acerca de».
     │   ├── translate_ui.go # Activación de OCR/traducción y diálogo de config.
-    │   ├── ui.go           # showPage, reportLoadError, toggleCleanMode, handleKey.
+    │   ├── ui.go           # showPage, errores de página, toggleCleanMode, handleKey.
     │   └── logos/          # Logotipos SVG (se embeben en el binario).
     │       └── *_test.go   # Pruebas unitarias del paquete app.
     ├── backend/            # Índice RAR/ZIP, extracción, decodificación, caché.
-    │   ├── backend.go
+    │   ├── backend.go      # Motor de lectura, prefetch, estadísticas de memoria.
+    │   ├── disk_cache.go   # Caché persistente del índice y de páginas RGBA.
+    │   ├── integrity.go    # Verificación rápida con presupuesto de tiempo.
+    │   ├── options.go      # OpenOptions, SortMode y PageProblem.
     │   └── *_test.go
     ├── ocr/                # OCR (Windows/Tesseract) y traducción.
     │   ├── ocr*.go
@@ -109,7 +122,7 @@ gutter/
 ### Arquitectura de paquetes
 
 - **`internal/app`**: Orquesta la ventana Fyne, el ciclo de vida de los cómics, la UI de lectura, el HUD, los menús y los diálogos. Es el paquete principal de la aplicación.
-- **`internal/backend`**: Índice de archivos `.cbr`/`.cbz` (RAR v4/v5 y ZIP), extracción selectiva de páginas, decodificación multiformato y caché LRU.
+- **`internal/backend`**: Índice de archivos `.cbr`/`.cbz` (RAR v4/v5 y ZIP), extracción selectiva de páginas, decodificación multiformato, caché LRU, caché persistente opcional, verificación de integridad y precarga.
 - **`internal/ocr`**: Motor de OCR (Windows integrado o Tesseract), traducción (MyMemory/LibreTranslate/DeepL) y capa de bocadillos traducidos.
 - **`internal/theme`**: Paleta de colores (`#121212`, `#1E1E1E`, `#007ACC`) y tema oscuro fijo de Fyne.
 - **`internal/ui`**: Layouts personalizados (`PageLayout`, `RootLayout`, `BottomBarLayout`, etc.) y el `ScrollSinSombras` que elimina sombras internas de Fyne.
@@ -221,16 +234,19 @@ CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o gutter .
 CGO_ENABLED=1 go test -v ./...
 ```
 
-Las pruebas cubren orden natural de páginas, conversión de imágenes
+Las pruebas cubren orden natural y alfabético de páginas, filtrado de basura
+(`__MACOSX`, `.DS_Store`, archivos ocultos), conversión de imágenes
 indexadas/GIF a RGBA, el corte de mitades, la selección izquierda/derecha según
 el sentido de lectura, el porcentaje de progreso, la restauración de sesión, el
 round-trip de la lista de recientes, la agrupación de líneas OCR en bocadillos,
 el renderizado de la capa traducida, las peticiones a LibreTranslate/DeepL,
-la cancelación de cargas, el cierre sincronizado del ZIP y la caché separada de
-miniaturas. El motor se validó además con cómics RAR5 normales y sólidos
-generados para la ocasión, con páginas AVIF y WebP reales, y con una página de
-bocadillos traducida de extremo a extremo usando el OCR integrado de Windows y
-MyMemory.
+la cancelación de cargas, el cierre sincronizado del ZIP, la caché separada de
+miniaturas, el round-trip y la evicción de la caché en disco, la restauración de
+índices ZIP/RAR, la detección de imágenes corruptas, la precarga y las
+preferencias de lectura. El motor se validó además con cómics RAR5 normales y
+sólidos generados para la ocasión, con páginas AVIF y WebP reales, y con una
+página de bocadillos traducida de extremo a extremo usando el OCR integrado de
+Windows y MyMemory.
 
 ### Benchmarks
 
@@ -372,11 +388,36 @@ Fyne v2 sustituyó los métodos `BackgroundColor()`, `ButtonColor()`, etc. por u
   cancela la lectura real; `CancelLoads` retira además la llamada del mapa para
   que una carga nueva del mismo nombre no se enganche a un trabajo cancelado.
 - **Cierre seguro:** `Comic.Close` marca el cómic como cerrado, cancela las
-  lecturas, espera `loadWG` y solo entonces cierra el descriptor del ZIP. Un
-  prefetch en vuelo nunca puede leer de un archivo ya cerrado.
-- **Prefetch bidireccional:** tras dibujar una página se precargan la anterior y
-  la siguiente con un contexto separado del progreso de la página actual. Al
-  cambiar de página se cancelan ambos contextos y las lecturas antiguas.
+  lecturas, espera `loadWG` y `diskWG`, y solo entonces cierra el descriptor del
+  ZIP. Un prefetch o una escritura de caché en vuelo nunca pueden leer de un
+  archivo ya cerrado ni dejar un `.gtp` a medias.
+- **Precarga en la dirección de lectura:** tras dibujar una página se precargan
+  las tres siguientes y la anterior con un contexto separado del progreso. En un
+  RAR sólido el backend recorre el contenedor una sola vez para todas ellas
+  (`PrefetchContext`), en vez de repetir el recorrido por página. Al cambiar de
+  página se cancelan ambos contextos y las lecturas antiguas.
+- **Caché persistente:** `internal/backend/disk_cache.go` guarda dos tipos de
+  archivo bajo el directorio de caché de Fyne. El índice (`.json`) se valida por
+  ruta, tamaño, fecha de modificación, orden, filtro e integridad; para RAR evita
+  recorrer las cabeceras al reabrir, y para ZIP evita repetir filtrado, orden y
+  verificación. Las páginas (`.gtp`) son RGBA crudo con una cabecera `GTP1`: se
+  eligió no comprimirlas porque descomprimir en cada apertura costaba más que
+  decodificar el JPEG original. La evicción es aproximadamente LRU por fecha de
+  uso y el límite se ajusta en «Acerca de».
+- **Integridad al abrir:** `integrity.go` valida la estructura del contenedor y
+  muestrea la primera, la central y la última página con un presupuesto de 1,2 s.
+  En RAR sólidos omite el muestreo (abrir una entrada intermedia obligaría a
+  descomprimir todas las anteriores). Los problemas se avisan en un diálogo y se
+  guardan en la caché de índice; la lectura continúa siempre.
+- **Errores de página:** si una entrada concreta falla al cargarse, `ui.go`
+  muestra un marcador dentro del área de lectura con el detalle y un botón
+  «Reintentar». No se abre un diálogo modal, así que las flechas y `G` siguen
+  funcionando. Los errores al abrir el archivo completo sí usan diálogo porque
+  no hay una página que sustituir.
+- **Opciones de lectura:** «Ver > Opciones de lectura…» guarda el orden
+  (natural/alfabético), el filtro de basura y la verificación en
+  `fyne.Preferences`. Al aplicar, el cómic se reabre conservando el nombre de la
+  página visible, no su índice, porque el orden puede cambiar.
 - **RAR sólidos:** el recorrido secuencial informa cada 10 páginas mediante un
   callback en el contexto. La barra inferior muestra `RAR sólido 120/455` y
   `Esc` cancela la carga, restaurando la última página realmente dibujada.

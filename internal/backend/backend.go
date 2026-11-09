@@ -92,6 +92,9 @@ type Comic struct {
 	Path  string
 	Pages []string
 
+	opts         OpenOptions
+	diskIdentity string
+
 	rarFiles map[string]*rardecode.File
 	zipFile  *zip.ReadCloser
 	zipFiles map[string]*zip.File
@@ -99,9 +102,21 @@ type Comic struct {
 	cache  *pageCache
 	thumbs *pageCache
 
+	// Problemas detectados por la comprobación rápida de integridad. La lectura
+	// continúa: cada página afectada mostrará un marcador con reintento.
+	problems []PageProblem
+
+	// Los RAR se pueden indexar desde la caché en disco sin cargar sus
+	// metadatos. rarFiles se rellena la primera vez que hace falta leer una
+	// página; rarSolid permite elegir el recorrido secuencial.
+	rarMu    sync.Mutex
+	rarReady bool
+	rarSolid bool
+
 	mu       sync.Mutex
 	inflight map[string]*loadCall
 	loadWG   sync.WaitGroup
+	diskWG   sync.WaitGroup
 	closed   bool
 }
 
@@ -128,19 +143,30 @@ const (
 // El tipo de contenedor se detecta por los magic bytes, no por la extensión:
 // es frecuente encontrar archivos llamados .cbr que en realidad son ZIP.
 func OpenComic(comicPath string) (*Comic, error) {
+	return OpenComicWithOptions(comicPath, OpenOptions{
+		Sort:        SortNatural,
+		IncludeJunk: false,
+	})
+}
+
+// OpenComicWithOptions permite elegir orden, filtro de basura, caché en disco y
+// verificación de integridad. La aplicación usa esta variante; OpenComic
+// conserva el comportamiento histórico para tests y llamadas simples.
+func OpenComicWithOptions(comicPath string, opts OpenOptions) (*Comic, error) {
 	comicPath = strings.TrimSpace(comicPath)
 	if comicPath == "" {
 		return nil, errors.New("la ruta del cómic está vacía")
 	}
+	opts = normalizeOpenOptions(opts)
 
 	kind, err := detectArchiveKind(comicPath)
 	if err != nil {
 		return nil, err
 	}
 	if kind == archiveZIP {
-		return openZIPComic(comicPath)
+		return openZIPComicWithOptions(comicPath, opts)
 	}
-	return openRARComic(comicPath)
+	return openRARComicWithOptions(comicPath, opts)
 }
 
 func detectArchiveKind(comicPath string) (archiveKind, error) {
@@ -169,46 +195,82 @@ func detectArchiveKind(comicPath string) (archiveKind, error) {
 	}
 }
 
-func openRARComic(comicPath string) (*Comic, error) {
+func openRARComicWithOptions(comicPath string, opts OpenOptions) (*Comic, error) {
+	info, _ := os.Stat(comicPath)
+	c := newComicWithOptions(comicPath, opts)
+	if info != nil {
+		c.diskIdentity = archiveIdentity(comicPath, info)
+	}
+
+	// Índice persistente: si el archivo no ha cambiado, la lista de páginas y
+	// los problemas detectados se recuperan sin recorrer las cabeceras del RAR.
+	if opts.DiskCache != nil && c.diskIdentity != "" {
+		if entry, ok := opts.DiskCache.LoadIndex(c.diskIdentity, info, opts); ok {
+			c.Pages = append(c.Pages, entry.Pages...)
+			c.problems = append(c.problems, entry.Problems...)
+			c.rarSolid = entry.Solid
+			return c, nil
+		}
+	}
+
 	files, err := rardecode.List(comicPath)
 	if err != nil {
 		return nil, fmt.Errorf("no se pudo abrir el RAR %q: %w", comicPath, err)
 	}
 
-	c := newComic(comicPath)
 	seen := make(map[string]struct{}, len(files))
 	for _, f := range files {
-		if f.IsDir || f.LinkType != rardecode.LinkTypeNone {
-			continue
-		}
-		if isHiddenComicFile(f) || !isComicImage(f.Name) {
+		if !c.acceptsRARFile(&f.FileHeader) {
 			continue
 		}
 		if !c.addPage(f.Name, seen) {
 			continue
 		}
 		c.rarFiles[f.Name] = f
+		if f.Solid {
+			c.rarSolid = true
+		}
 	}
+	c.rarReady = true
 
 	if err := c.finishIndex(); err != nil {
 		return nil, err
 	}
+	if opts.IntegrityCheck {
+		c.problems = c.quickIntegrityCheck()
+	}
+	if opts.DiskCache != nil && c.diskIdentity != "" {
+		opts.DiskCache.SaveIndex(c.diskIdentity, info, opts, c.rarSolid, c.Pages, c.problems)
+	}
 	return c, nil
 }
 
-func openZIPComic(comicPath string) (*Comic, error) {
+func openZIPComicWithOptions(comicPath string, opts OpenOptions) (*Comic, error) {
 	zr, err := zip.OpenReader(comicPath)
 	if err != nil {
 		return nil, fmt.Errorf("no se pudo abrir el ZIP %q: %w", comicPath, err)
 	}
 
-	c := newComic(comicPath)
+	info, _ := os.Stat(comicPath)
+	c := newComicWithOptions(comicPath, opts)
+	if info != nil {
+		c.diskIdentity = archiveIdentity(comicPath, info)
+	}
 	c.zipFile = zr
 	c.zipFiles = make(map[string]*zip.File, len(zr.File))
 
+	// Índice persistente: se reutiliza la lista de páginas ya ordenada y los
+	// problemas detectados. El ZIP sigue abriéndose para acceder a los datos,
+	// pero se evita repetir filtrado, ordenación y verificación.
+	if opts.DiskCache != nil && c.diskIdentity != "" {
+		if entry, ok := opts.DiskCache.LoadIndex(c.diskIdentity, info, opts); ok && c.restoreZIPIndex(entry) {
+			return c, nil
+		}
+	}
+
 	seen := make(map[string]struct{}, len(zr.File))
 	for _, f := range zr.File {
-		if f.FileInfo().IsDir() || isHiddenComicPath(f.Name) || !isComicImage(f.Name) {
+		if f.FileInfo().IsDir() || !c.acceptsEntry(f.Name) {
 			continue
 		}
 		// archive/zip no descifra entradas con contraseña.
@@ -225,12 +287,53 @@ func openZIPComic(comicPath string) (*Comic, error) {
 		_ = zr.Close()
 		return nil, err
 	}
+	if opts.IntegrityCheck {
+		c.problems = c.quickIntegrityCheck()
+	}
+	if opts.DiskCache != nil && c.diskIdentity != "" {
+		opts.DiskCache.SaveIndex(c.diskIdentity, info, opts, false, c.Pages, c.problems)
+	}
 	return c, nil
 }
 
-func newComic(comicPath string) *Comic {
+// restoreZIPIndex rellena zipFiles a partir de las páginas guardadas. Si el
+// archivo ya no contiene todas las entradas del índice, se descarta la caché
+// para no mostrar páginas que fallarían al abrirse.
+func (c *Comic) restoreZIPIndex(entry *indexCacheEntry) bool {
+	if entry == nil || len(entry.Pages) == 0 {
+		return false
+	}
+	wanted := make(map[string]struct{}, len(entry.Pages))
+	for _, name := range entry.Pages {
+		wanted[name] = struct{}{}
+	}
+	for _, f := range c.zipFile.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		if _, ok := wanted[f.Name]; !ok {
+			continue
+		}
+		if f.Flags&0x1 != 0 {
+			continue
+		}
+		c.zipFiles[f.Name] = f
+		delete(wanted, f.Name)
+	}
+	if len(wanted) != 0 {
+		c.zipFiles = make(map[string]*zip.File, len(c.zipFile.File))
+		return false
+	}
+	c.Pages = append([]string(nil), entry.Pages...)
+	c.problems = append([]PageProblem(nil), entry.Problems...)
+	return true
+}
+
+func newComicWithOptions(comicPath string, opts OpenOptions) *Comic {
+	opts = normalizeOpenOptions(opts)
 	return &Comic{
 		Path:     comicPath,
+		opts:     opts,
 		rarFiles: make(map[string]*rardecode.File),
 		zipFiles: make(map[string]*zip.File),
 		cache:    newPageCache(defaultPageCacheBudget),
@@ -251,6 +354,13 @@ func (c *Comic) addPage(name string, seen map[string]struct{}) bool {
 func (c *Comic) finishIndex() error {
 	if len(c.Pages) == 0 {
 		return fmt.Errorf("%q no contiene imágenes compatibles", c.Path)
+	}
+
+	if c.opts.Sort == SortLexicographic {
+		sort.SliceStable(c.Pages, func(i, j int) bool {
+			return lexicographicLess(c.Pages[i], c.Pages[j])
+		})
+		return nil
 	}
 
 	// Orden alfabético natural: page2.jpg va antes que page10.jpg, que es lo
@@ -290,6 +400,7 @@ func (c *Comic) Close() error {
 	c.mu.Unlock()
 
 	c.loadWG.Wait()
+	c.diskWG.Wait()
 
 	if c.zipFile != nil {
 		return c.zipFile.Close()
@@ -484,6 +595,164 @@ func (c *Comic) loadImage(
 	return c.waitLoad(ctx, call)
 }
 
+// MemoryStats describe el uso actual de las cachés en RAM.
+type MemoryStats struct {
+	PageCount  int
+	PageBytes  int64
+	PageLimit  int64
+	ThumbCount int
+	ThumbBytes int64
+	ThumbLimit int64
+}
+
+// MemoryStats devuelve una foto de las cachés en RAM.
+func (c *Comic) MemoryStats() MemoryStats {
+	if c == nil {
+		return MemoryStats{}
+	}
+	pageCount, pageBytes, pageLimit := c.cache.stats()
+	thumbCount, thumbBytes, thumbLimit := c.thumbs.stats()
+	return MemoryStats{
+		PageCount:  pageCount,
+		PageBytes:  pageBytes,
+		PageLimit:  pageLimit,
+		ThumbCount: thumbCount,
+		ThumbBytes: thumbBytes,
+		ThumbLimit: thumbLimit,
+	}
+}
+
+// ClearMemoryCaches vacía las páginas y miniaturas en RAM. La página que se
+// está mostrando sigue viva porque el canvas mantiene su propia referencia.
+func (c *Comic) ClearMemoryCaches() {
+	if c == nil {
+		return
+	}
+	c.cache.clear()
+	c.thumbs.clear()
+}
+
+// Problems devuelve una copia de las entradas problemáticas detectadas al abrir.
+func (c *Comic) Problems() []PageProblem {
+	if c == nil || len(c.problems) == 0 {
+		return nil
+	}
+	out := make([]PageProblem, len(c.problems))
+	copy(out, c.problems)
+	return out
+}
+
+// PrefetchContext precarga varias páginas en la dirección de lectura. En RAR
+// sólidos recorre el contenedor una sola vez para todas ellas; en el resto de
+// casos reutiliza la caché y el single-flight normales.
+func (c *Comic) PrefetchContext(ctx context.Context, names []string) error {
+	if c == nil || len(names) == 0 || c.cache == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	targets := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if _, duplicate := seen[name]; duplicate {
+			continue
+		}
+		seen[name] = struct{}{}
+		if _, cached := c.cache.get(name); cached {
+			continue
+		}
+		targets = append(targets, name)
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+
+	if c.zipFile == nil {
+		if err := c.ensureRARFiles(); err != nil {
+			return err
+		}
+		if c.rarSolid {
+			return c.prefetchRARSequential(ctx, targets)
+		}
+	}
+
+	for _, name := range targets {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := c.PageContext(ctx, name); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			// Un prefetch es best-effort: una página rota no debe detener las
+			// demás.
+			continue
+		}
+	}
+	return nil
+}
+
+// prefetchRARSequential recorre un RAR sólido una vez y guarda todas las
+// páginas pedidas que encuentre. Evita repetir el recorrido por cada página.
+func (c *Comic) prefetchRARSequential(ctx context.Context, names []string) error {
+	targets := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		targets[name] = struct{}{}
+	}
+
+	rc, err := rardecode.OpenReader(c.Path)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	for len(targets) > 0 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		header, err := rc.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			return err
+		}
+		if !c.acceptsRARFile(header) {
+			continue
+		}
+		if _, wanted := targets[header.Name]; !wanted {
+			continue
+		}
+
+		data, err := readAllLimited(ctx, rc, header.UnPackedSize)
+		if err != nil {
+			delete(targets, header.Name)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			continue
+		}
+		src, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			delete(targets, header.Name)
+			continue
+		}
+		img := toRGBA(src)
+		c.cache.put(header.Name, img)
+		c.savePageToDisk(header.Name, img)
+		delete(targets, header.Name)
+	}
+	return nil
+}
+
 func (c *Comic) waitLoad(ctx context.Context, call *loadCall) (*image.RGBA, error) {
 	select {
 	case <-call.done:
@@ -550,11 +819,21 @@ func CropHalf(img *image.RGBA, getRightHalf bool) image.Image {
 	return out
 }
 
-// loadPage extrae y decodifica una entrada concreta.
+// loadPage extrae y decodifica una entrada concreta. Antes de tocar el
+// contenedor intenta recuperar la página de la caché en disco.
 func (c *Comic) loadPage(ctx context.Context, imageName string) (*image.RGBA, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if c.opts.DiskCache != nil && c.diskIdentity != "" {
+		if img, ok := c.opts.DiskCache.LoadPage(c.diskIdentity, imageName); ok {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			return img, nil
+		}
+	}
+
 	data, err := c.readEntry(ctx, imageName)
 	if err != nil {
 		return nil, err
@@ -570,7 +849,32 @@ func (c *Comic) loadPage(ctx context.Context, imageName string) (*image.RGBA, er
 
 	// Normalización obligatoria: GIF animado, WebP, AVIF y algunos PNG
 	// devuelven image.Paletted/NRGBA/YCbCr. Fyne y SubImage necesitan RGBA.
-	return toRGBA(src), nil
+	img := toRGBA(src)
+	c.savePageToDisk(imageName, img)
+	return img, nil
+}
+
+// savePageToDisk escribe la página en segundo plano. Close espera a que
+// terminen las escrituras pendientes para no dejar archivos a medias.
+func (c *Comic) savePageToDisk(imageName string, img *image.RGBA) {
+	if c.opts.DiskCache == nil || c.diskIdentity == "" || img == nil {
+		return
+	}
+	// Add se hace con c.mu tomado y Close marca closed antes de esperar. Así
+	// ninguna escritura puede empezar después de que Close haya medido el
+	// WaitGroup.
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.diskWG.Add(1)
+	c.mu.Unlock()
+
+	go func() {
+		defer c.diskWG.Done()
+		c.opts.DiskCache.SavePage(c.diskIdentity, imageName, img)
+	}()
 }
 
 // readEntry obtiene los bytes comprimidos de una entrada del ZIP o del RAR.
@@ -602,6 +906,9 @@ func (c *Comic) readZIPEntry(ctx context.Context, imageName string) ([]byte, err
 // readRAREntry usa acceso aleatorio cuando el RAR no es sólido y acceso
 // secuencial como fallback.
 func (c *Comic) readRAREntry(ctx context.Context, imageName string) ([]byte, error) {
+	if err := c.ensureRARFiles(); err != nil {
+		return nil, err
+	}
 	f := c.rarFiles[imageName]
 	if f == nil {
 		return nil, fmt.Errorf("la página %q no existe en el RAR", imageName)
@@ -633,6 +940,41 @@ func (c *Comic) readRAREntry(ctx context.Context, imageName string) ([]byte, err
 		return nil, fmt.Errorf("no se pudo extraer %q: %w", imageName, err)
 	}
 	return data, nil
+}
+
+// ensureRARFiles completa el mapa de metadatos de un RAR abierto desde la
+// caché de índice. Solo se llama cuando hace falta leer una página: la
+// apertura inicial sigue siendo instantánea.
+func (c *Comic) ensureRARFiles() error {
+	c.rarMu.Lock()
+	defer c.rarMu.Unlock()
+
+	if c.rarReady {
+		return nil
+	}
+	files, err := rardecode.List(c.Path)
+	if err != nil {
+		return fmt.Errorf("no se pudo releer el índice del RAR %q: %w", c.Path, err)
+	}
+
+	wanted := make(map[string]struct{}, len(c.Pages))
+	for _, page := range c.Pages {
+		wanted[page] = struct{}{}
+	}
+	for _, f := range files {
+		if _, ok := wanted[f.Name]; !ok {
+			continue
+		}
+		if f.IsDir || f.LinkType != rardecode.LinkTypeNone {
+			continue
+		}
+		c.rarFiles[f.Name] = f
+		if f.Solid {
+			c.rarSolid = true
+		}
+	}
+	c.rarReady = true
+	return nil
 }
 
 // ReadProgressKey transporta un callback de progreso dentro del contexto de
@@ -682,7 +1024,7 @@ func (c *Comic) readSequential(ctx context.Context, imageName string) ([]byte, e
 			}
 			return nil, err
 		}
-		if header.IsDir || isHiddenComicPath(header.Name) || !isComicImage(header.Name) {
+		if !c.acceptsRARFile(header) {
 			continue
 		}
 
@@ -766,23 +1108,55 @@ func isComicImage(name string) bool {
 	return ok
 }
 
-// isHiddenComicPath ignora archivos ocultos, __MACOSX y metadatos de sistema.
-func isHiddenComicPath(name string) bool {
+// acceptsEntry aplica el filtro de extensión y, si está activo, el de basura.
+func (c *Comic) acceptsEntry(name string) bool {
+	if !isComicImage(name) {
+		return false
+	}
+	return c.opts.IncludeJunk || !isJunkComicPath(name)
+}
+
+// acceptsRARFile añade a acceptsEntry las reglas propias de RAR: directorios,
+// enlaces y el atributo oculto de Windows.
+func (c *Comic) acceptsRARFile(f *rardecode.FileHeader) bool {
+	if f == nil || f.IsDir || f.LinkType != rardecode.LinkTypeNone {
+		return false
+	}
+	if !c.acceptsEntry(f.Name) {
+		return false
+	}
+	return c.opts.IncludeJunk || !isHiddenComicFile(f)
+}
+
+// isJunkComicPath reconoce metadatos y carpetas que no forman parte del cómic.
+// Es más amplio que isHiddenComicPath porque incluye archivos de sistema que
+// WinRAR y macOS dejan dentro de los contenedores.
+func isJunkComicPath(name string) bool {
 	name = strings.ReplaceAll(name, "\\", "/")
 	for _, part := range strings.Split(name, "/") {
 		if part == "" || part == "." || part == ".." {
 			continue
 		}
-		if strings.HasPrefix(part, ".") || part == "__MACOSX" {
+		lower := strings.ToLower(part)
+		if strings.HasPrefix(part, ".") || lower == "__macosx" || lower == "@eadir" {
+			return true
+		}
+		switch lower {
+		case "thumbs.db", "desktop.ini":
 			return true
 		}
 	}
 	return false
 }
 
+// isHiddenComicPath ignora archivos ocultos, __MACOSX y metadatos de sistema.
+func isHiddenComicPath(name string) bool {
+	return isJunkComicPath(name)
+}
+
 // isHiddenComicFile combina la convención Unix (.nombre) con el atributo
 // FILE_ATTRIBUTE_HIDDEN que WinRAR puede conservar en archivos de Windows.
-func isHiddenComicFile(f *rardecode.File) bool {
+func isHiddenComicFile(f *rardecode.FileHeader) bool {
 	const fileAttributeHidden = 0x2
 	if f.HostOS == rardecode.HostOSWindows && f.Attributes&fileAttributeHidden != 0 {
 		return true
@@ -797,6 +1171,16 @@ func naturalLess(a, b string) bool {
 		return cmp < 0
 	}
 	return a < b
+}
+
+// lexicographicLess compara como cadenas, sin interpretar números. El
+// desempate por el nombre original mantiene un orden estable en Windows.
+func lexicographicLess(a, b string) bool {
+	al, bl := strings.ToLower(a), strings.ToLower(b)
+	if al == bl {
+		return a < b
+	}
+	return al < bl
 }
 
 func naturalCompare(a, b string) int {
@@ -927,4 +1311,26 @@ func (c *pageCache) put(name string, img *image.RGBA) {
 		delete(c.items, entry.name)
 		c.bytes -= int64(len(entry.img.Pix))
 	}
+}
+
+// stats devuelve número de elementos y bytes usados, junto al presupuesto.
+func (c *pageCache) stats() (count int, bytes, maxBytes int64) {
+	if c == nil {
+		return 0, 0, 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.order.Len(), c.bytes, c.maxBytes
+}
+
+// clear libera todas las imágenes retenidas por la caché.
+func (c *pageCache) clear() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.order.Init()
+	c.items = make(map[string]*list.Element)
+	c.bytes = 0
 }

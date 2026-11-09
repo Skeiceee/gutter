@@ -30,10 +30,11 @@ Orquesta la ventana Fyne y toda la lógica de lectura.
 | `help.go` | Menú Archivo/Ver/Traducción/Ayuda, hoja de atajos (`F1`, `?`), "Acerca de". |
 | `hud.go` | Indicador flotante de página en pantalla completa y selector `G`. |
 | `library.go` | Progreso persistente, lista de recientes, pantalla de bienvenida. |
-| `navigation.go` | Zoom, scroll, paginación, prefetch de páginas adyacentes, `updateControls`, `clampZoom`, `updateZoomLabel`. |
+| `navigation.go` | Zoom, scroll, paginación, precarga de las tres páginas siguientes y la anterior, `updateControls`, `clampZoom`, `updateZoomLabel`. |
 | `run.go` | `Run()`: crea la aplicación Fyne, instala el tema, configura `OnStarted` y lanza `ShowAndRun()`. |
+| `settings.go` | Preferencias de lectura (orden, filtro, integridad), caché de disco, diálogo de opciones y estadísticas de «Acerca de». |
 | `translate_ui.go` | Activación de OCR/traducción bajo demanda (`T`), caché por página, diálogo de configuración. |
-| `ui.go` | `showPage`, `reportLoadError`, `toggleCleanMode`, `handleKey`, `buildBottomBar`, `onReaderResize`, `updateZoomLabel`. |
+| `ui.go` | `showPage`, `reportLoadError`, marcador de página fallida, `toggleCleanMode`, `handleKey`, `buildBottomBar`, `onReaderResize`, `updateZoomLabel`. |
 
 **Flujo de arranque:**
 
@@ -51,12 +52,21 @@ main.Run()                      ← main.go llama a app.Run()
 ### `internal/backend`
 
 Índice de archivos `.cbr`/`.cbz` (RAR v4/v5 y ZIP), extracción selectiva de páginas,
-decodificación multiformato (JPEG, PNG, GIF, WebP, AVIF, BMP, TIFF) y caché LRU
-de 96 MiB con *single-flight* y prefetch.
+decodificación multiformato (JPEG, PNG, GIF, WebP, AVIF, BMP, TIFF), caché LRU
+de 96 MiB con *single-flight*, precarga y caché persistente opcional.
+
+| Archivo | Responsabilidad |
+|---------|-----------------|
+| `backend.go` | Motor de lectura, índice RAR/ZIP, `PrefetchContext`, estadísticas de memoria y limpieza de cachés. |
+| `disk_cache.go` | Índice `.json` por tamaño/fecha/configuración y páginas `.gtp` en RGBA crudo; evicción LRU y límite configurable. |
+| `integrity.go` | Comprobación estructural y por muestreo con presupuesto de 1,2 s; devuelve `PageProblem`. |
+| `options.go` | `OpenOptions`, `SortMode` (natural/lexicográfico) y `PageProblem`. |
 
 - Detección por *magic bytes*: `Rar!` para RAR, `PK` para ZIP.
 - Corte de doble página con `SubImage` compactado a `*image.RGBA`.
 - Caché LRU de 96 MiB; caché de miniaturas independiente de 24 MiB.
+- `OpenComic` conserva el comportamiento histórico (memoria, orden natural); la
+  app usa `OpenComicWithOptions` para activar caché, filtro e integridad.
 
 ### `internal/ocr`
 
@@ -117,23 +127,26 @@ openFile (dialogs.go)
         ▼
 LoadComic(path) (dialogs.go)
         │
-        ├─► OpenComic(path)          internal/backend
+        ├─► OpenComicWithOptions(path, opts)   internal/backend
         │      └─► detectArchiveKind (magic bytes)
-        │      └─► openRARComic / openZIPComic
-        │      └─► ReadComicIndex (orden natural)
+        │      └─► DiskCache.LoadIndex (tamaño + fecha + configuración)
+        │      └─► openRARComicWithOptions / openZIPComicWithOptions
+        │      └─► finishIndex (orden natural o lexicográfico)
+        │      └─► quickIntegrityCheck (si está activa)
         │
         ├─► restoreProgress(comic)   library.go (prefs)
         │
         └─► showPage()               ui.go
                │
-               ├─► comic.GetPageContext (backend)
+               ├─► comic.PageContext (backend)
+               │      ├─► DiskCache.LoadPage (si existe)
                │      ├─► readEntry (RAR/ZIP)
                │      ├─► toRGBA (normaliza a image.RGBA)
                │      └─► CropHalf (si doble página)
                │
                ├─► applyPageZoom (zoom 65% ancho por defecto)
                │
-               └─► prefetchAdjacent (página anterior + siguiente)
+               └─► prefetchAdjacent (tres siguientes + anterior)
 ```
 
 ---
@@ -146,6 +159,8 @@ LoadComic(path) (dialogs.go)
 4. **Un solo diálogo a la vez**: `showDialog` / `hideActiveDialog` evitan apilar ventanas al pulsar F1/Ctrl+O repetidamente.
 5. **Caché LRU de 96 MiB**: las páginas decodificadas se mantienen en memoria para evitar recompresión al navegar.
 6. **Zoom por defecto al 65%**: la página ocupa el 65% del ancho disponible, dejando aire a los lados.
+7. **La caché en disco es opcional y best-effort**: un fallo de escritura nunca impide leer; la app puede funcionar sin directorio de caché.
+8. **La lectura nunca se bloquea por una página rota**: los errores de página se muestran en el área de lectura con «Reintentar»; solo los fallos al abrir usan diálogo.
 
 ---
 

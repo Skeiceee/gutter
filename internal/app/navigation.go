@@ -211,34 +211,38 @@ func (g *gutterApp) goToPage(index int) {
 	g.showPage()
 }
 
-// prefetchAdjacent decodifica la página anterior y la siguiente en segundo
-// plano. Se hace secuencialmente para dar prioridad a la siguiente y evitar
-// dos recorridos simultáneos de un RAR sólido.
-
+// prefetchAdjacent precarga las tres páginas siguientes y la anterior. En un
+// RAR sólido el backend recorre el contenedor una sola vez para todas ellas.
 func (g *gutterApp) prefetchAdjacent(ctx context.Context, comic *backend.Comic) {
 	if comic == nil || ctx == nil || g.comic != comic {
 		return
 	}
 
-	next := ""
-	if !(g.singlePage && g.spread && g.half == 0) && g.pageIndex+1 < len(comic.Pages) {
-		next = comic.Pages[g.pageIndex+1]
+	names := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	appendPage := func(index int) {
+		if index < 0 || index >= len(comic.Pages) || index == g.pageIndex {
+			return
+		}
+		name := comic.Pages[index]
+		if _, duplicate := seen[name]; duplicate {
+			return
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
 	}
-	previous := ""
-	if !(g.singlePage && g.spread && g.half == 1) && g.pageIndex > 0 {
-		previous = comic.Pages[g.pageIndex-1]
+
+	for offset := 1; offset <= 3; offset++ {
+		appendPage(g.pageIndex + offset)
 	}
-	if next == "" && previous == "" {
+	appendPage(g.pageIndex - 1)
+
+	if len(names) == 0 {
 		return
 	}
 
 	go func() {
-		if next != "" {
-			_, _ = comic.PageContext(ctx, next)
-		}
-		if previous != "" {
-			_, _ = comic.PageContext(ctx, previous)
-		}
+		_ = comic.PrefetchContext(ctx, names)
 	}()
 }
 
@@ -278,7 +282,9 @@ func (g *gutterApp) updateControls() {
 	}
 
 	progress := fmt.Sprintf("Página %d de %d", g.pageIndex+1, total)
-	if g.singlePage && g.spread {
+	if g.pageFailed {
+		progress += "  ·  error"
+	} else if g.singlePage && g.spread {
 		progress += fmt.Sprintf("  ·  %d/2", g.half+1)
 	}
 	g.progress.SetText(progress)

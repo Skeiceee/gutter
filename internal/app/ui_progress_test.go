@@ -40,6 +40,26 @@ func TestUpdateControlsShowsRARProgress(t *testing.T) {
 	}
 }
 
+func TestUpdateControlsShowsPageError(t *testing.T) {
+	app := test.NewApp()
+	defer app.Quit()
+
+	g := NewGutterApp(app)
+	comic := &backend.Comic{Path: "test.cbz", Pages: []string{"1.png", "2.png", "3.png"}}
+	g.comic = comic
+	g.pageIndex = 1
+	g.pageFailed = true
+
+	g.updateControls()
+
+	if !strings.Contains(g.progress.Text, "Página 2 de 3") || !strings.Contains(g.progress.Text, "error") {
+		t.Fatalf("progreso con error = %q", g.progress.Text)
+	}
+	if g.prevButton.Disabled() || g.nextButton.Disabled() {
+		t.Fatal("la navegación debe seguir disponible tras un error de página")
+	}
+}
+
 func TestCancelLoadingRestoresShownPage(t *testing.T) {
 	app := test.NewApp()
 	defer app.Quit()

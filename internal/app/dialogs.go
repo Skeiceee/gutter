@@ -53,21 +53,23 @@ func (g *gutterApp) openFile() {
 	dialog.Show()
 }
 
-// loadComic abre un archivo .cbr/.cbz y lo prepara para lectura.
-func (g *gutterApp) LoadComic(comicPath string) {
+// loadComic abre un archivo .cbr/.cbz y lo prepara para lectura. Si pageName
+// no está vacío, intenta colocarse en esa página después de restaurar el
+// progreso; es lo que usa el cambio de opciones de orden.
+func (g *gutterApp) loadComic(comicPath, pageName string) {
 	if comicPath == "" {
 		return
 	}
 
 	g.cancelPageWork()
+	g.clearPageError()
+	seq := g.pageSeq.Add(1)
 
-	if g.comic != nil {
-		_ = g.comic.Close()
-	}
-
-	comic, err := backend.OpenComic(comicPath)
+	// Se abre el nuevo cómic antes de cerrar el actual: si el archivo está
+	// dañado, el usuario conserva la lectura que ya tenía en pantalla.
+	comic, err := backend.OpenComicWithOptions(comicPath, g.openOptions())
 	if err != nil {
-		g.reportLoadError(g.pageSeq.Add(1), nil, err)
+		g.reportOpenError(seq, err)
 		return
 	}
 
@@ -75,6 +77,12 @@ func (g *gutterApp) LoadComic(comicPath string) {
 	g.comic = comic
 
 	g.restoreProgress(comic)
+	if pageName != "" {
+		if index := indexOfPage(comic.Pages, pageName); index >= 0 {
+			g.pageIndex = index
+			g.half = 0
+		}
+	}
 
 	if oldComic != nil {
 		_ = oldComic.Close()
@@ -82,6 +90,24 @@ func (g *gutterApp) LoadComic(comicPath string) {
 
 	g.showPage()
 	g.window.SetTitle(fmt.Sprintf("%s — %s", appTitle, filepath.Base(comicPath)))
+
+	if problems := comic.Problems(); len(problems) > 0 {
+		g.showIntegrityWarning(problems)
+	}
+}
+
+// LoadComic abre un cómic conservando el progreso guardado.
+func (g *gutterApp) LoadComic(comicPath string) {
+	g.loadComic(comicPath, "")
+}
+
+func indexOfPage(pages []string, name string) int {
+	for index, page := range pages {
+		if page == name {
+			return index
+		}
+	}
+	return -1
 }
 
 // cancelPageWork detiene la carga actual y el prefetch.
@@ -105,6 +131,10 @@ func (g *gutterApp) cancelLoading() {
 	g.loading = false
 	g.readScanned.Store(0)
 	g.readTotal.Store(0)
+	g.clearPageError()
+	if g.pageImage.Image != nil {
+		g.scroll.Show()
+	}
 
 	if g.shownComic == g.comic {
 		g.pageIndex = g.shownPage

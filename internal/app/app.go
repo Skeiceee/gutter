@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	fyneTheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"gutter/internal/backend"
 	"gutter/internal/cursor"
@@ -71,6 +72,17 @@ type gutterApp struct {
 
 	recents []recentComic
 
+	// Caché persistente compartida por todos los cómics. Se crea al arrancar y
+	// se pasa al backend en cada apertura.
+	diskCache *backend.DiskCache
+
+	// Marcador de página fallida. Sustituye al diálogo modal: el usuario puede
+	// seguir navegando y reintentar sin cerrar una ventana.
+	pageErrorState  *fyne.Container
+	pageErrorLabel  *widget.Label
+	pageErrorDetail *widget.Label
+	pageFailed      bool
+
 	// Geometría de la última ventana en modo normal. Al cerrar en pantalla
 	// completa se guarda esta, no el tamaño del monitor.
 	lastWindowedSize fyne.Size
@@ -118,6 +130,7 @@ func NewGutterApp(a fyne.App) *gutterApp {
 		prefs:      a.Preferences(),
 	}
 	g.recents = loadRecents(g.prefs)
+	g.diskCache = newAppDiskCache(a, g.prefs)
 
 	g.window = a.NewWindow(appTitle)
 	// Arranque siempre en modo ventana normal. El tamaño definitivo se calcula
@@ -199,6 +212,31 @@ func NewGutterApp(a fyne.App) *gutterApp {
 		g.gotoBadge.root,
 	)
 
+	// Marcador de error de página. Es un objeto más del stack de lectura, no un
+	// diálogo: así la navegación sigue disponible y el reintento es inmediato.
+	g.pageErrorLabel = widget.NewLabelWithStyle(
+		"No se pudo mostrar esta página",
+		fyne.TextAlignCenter,
+		fyne.TextStyle{Bold: true},
+	)
+	g.pageErrorLabel.Wrapping = fyne.TextWrapWord
+	g.pageErrorDetail = widget.NewLabel("")
+	g.pageErrorDetail.Wrapping = fyne.TextWrapWord
+	g.pageErrorDetail.Importance = widget.LowImportance
+	retryButton := widget.NewButtonWithIcon("Reintentar", fyneTheme.ViewRefreshIcon(), g.retryPage)
+	retryButton.Importance = widget.HighImportance
+
+	errorCard := container.NewStack(
+		canvas.NewRectangle(theme.GutterPanelColor()),
+		container.NewPadded(container.NewVBox(
+			container.NewCenter(g.pageErrorLabel),
+			container.NewCenter(g.pageErrorDetail),
+			container.NewCenter(retryButton),
+		)),
+	)
+	g.pageErrorState = container.NewCenter(container.NewGridWrap(fyne.NewSize(440, 230), errorCard))
+	g.pageErrorState.Hide()
+
 	readerLayout := &ui.ReaderLayout{OnResize: g.onReaderResize}
 	readerArea := container.New(
 		readerLayout,
@@ -211,6 +249,7 @@ func NewGutterApp(a fyne.App) *gutterApp {
 	readerStack := container.New(
 		&ui.BottomShadowLayout{Height: 2},
 		readerArea,
+		g.pageErrorState,
 		g.pageBadgeOverlay,
 		g.gotoBadgeOverlay,
 		g.bottomShadow,
