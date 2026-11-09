@@ -159,6 +159,16 @@ LoadComic(path) (dialogs.go)
 CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o gutter .
 ```
 
+**Icono y recursos de Windows:** `assets/gutter.ico` y `assets/gutter.rc`
+contienen el icono y las propiedades del archivo. Se compilan una sola vez al
+objeto `rsrc_windows_amd64.syso`, que Go incrusta automáticamente al compilar
+para Windows amd64:
+
+```powershell
+cd assets
+windres -i gutter.rc -o ..\rsrc_windows_amd64.syso
+```
+
 **Pruebas:**
 ```bash
 CGO_ENABLED=1 go test ./...

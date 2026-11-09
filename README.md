@@ -63,7 +63,9 @@ caché LRU en RAM.
 ```
 gutter/
 ├── main.go                 # Único punto de entrada: llama a app.Run().
+├── rsrc_windows_amd64.syso # Icono y versión incrustados en Gutter.exe.
 ├── build.ps1               # Compilación de Gutter.exe en Windows.
+├── assets/                 # Recursos de compilación (icono .ico y .rc).
 ├── go.mod / go.sum
 ├── README.md
 └── internal/
