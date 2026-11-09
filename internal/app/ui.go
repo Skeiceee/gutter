@@ -161,6 +161,7 @@ func (g *gutterApp) toggleCleanMode() {
 		g.cursorBlanker.Show()
 		g.window.SetFullScreen(true)
 	} else {
+		g.cleanMode = false
 		g.bottomBar.Show()
 		if g.mainMenu != nil {
 			g.window.SetMainMenu(g.mainMenu)

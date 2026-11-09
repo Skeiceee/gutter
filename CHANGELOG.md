@@ -4,6 +4,19 @@ Todas las versiones publicadas de Gutter, con los cambios más visibles para
 quien usa el lector. El ejecutable de cada versión está en
 [Releases](https://github.com/Skeiceee/gutter/releases).
 
+## v1.1.1 — 2026-11-09
+
+Versión de corrección sobre v1.1.0.
+
+### Corregido
+
+- **Indicador de página en pantalla completa:** el contador `Página X / N` ahora
+  se actualiza al navegar, en lugar de quedarse en la página que estaba visible
+  al pulsar `F11`.
+- **Entrada y salida del modo limpio:** al salir se restablece el estado interno,
+  de modo que la siguiente pulsación de `F11` vuelve a entrar en pantalla
+  completa y el indicador se oculta correctamente al recuperar las barras.
+
 ## v1.1.0 — 2026-11-09
 
 Versión centrada en el rendimiento y la robustez al abrir cómics grandes,

@@ -248,6 +248,10 @@ func (g *gutterApp) prefetchAdjacent(ctx context.Context, comic *backend.Comic) 
 
 // updateControls sincroniza barra inferior y botones con el estado actual.
 func (g *gutterApp) updateControls() {
+	// El indicador de página de pantalla completa debe seguir a la navegación,
+	// no solo aparecer al entrar en modo limpio.
+	defer g.updatePageBadge()
+
 	if g.comic == nil {
 		g.progress.SetText("Sin cómic abierto")
 		g.prevButton.Disable()
