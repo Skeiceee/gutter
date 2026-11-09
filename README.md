@@ -7,6 +7,11 @@
   </picture>
 </p>
 
+<p align="center">
+  <a href="https://skeiceee.github.io/gutter/"><b>Sitio web</b></a> ·
+  <a href="https://github.com/Skeiceee/gutter/releases/latest"><b>Descargar</b></a>
+</p>
+
 Lector de cómics `.cbr`/`.cbz` de código abierto, escrito en Go con
 [Fyne](https://fyne.io/). El nombre hace referencia al *gutter*, el espacio
 entre viñetas.
