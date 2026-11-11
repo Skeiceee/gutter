@@ -4,6 +4,32 @@ Todas las versiones publicadas de Gutter, con los cambios más visibles para
 quien usa el lector. El ejecutable de cada versión está en
 [Releases](https://github.com/Skeiceee/gutter/releases).
 
+## v1.2.0 — 2026-11-10
+
+### Rejilla de páginas
+
+- **Vista general con `M`**: muestra todas las páginas del cómic como
+  miniaturas y también está disponible en «Ver > Rejilla de páginas (M)».
+  Funciona como una capa sobre el lector, así que cubre la barra inferior.
+- **Carga perezosa**: solo se piden las miniaturas de la zona visible más dos
+  filas de margen; al desplazarse se piden los siguientes bloques. En RAR
+  sólidos se genera todo el lote en un único recorrido secuencial para no
+  descomprimir el contenedor una vez por fila.
+- **Navegación por teclado**: flechas para moverse por filas y columnas,
+  `Inicio`/`Fin`, `Av Pág`/`Re Pág`, `Enter` para abrir la página seleccionada
+  y `M`/`Esc` para cerrar. El clic sobre una miniatura la abre directamente.
+- **Estado por celda**: número de página, marca «DOBLE» en páginas horizontales
+  y aviso «No se pudo cargar» con el resto de la rejilla operativa.
+- **Tamaño configurable**: 120, 160, 200 o 240 px en «Ver > Opciones de
+  lectura…»; se aplica al reabrir la rejilla y se conserva entre sesiones.
+- **Miniaturas nítidas**: se generan a 1,5 veces el tamaño lógico multiplicado
+  por el DPI de la pantalla y se reducen con `CatmullRom`. Fyne las muestra con
+  filtro suave, así que nunca amplía una imagen pequeña ni deja el texto
+  emborronado.
+- **Caché persistente de miniaturas**: archivos `.gth` en un presupuesto
+  separado (25 % del límite de páginas, entre 16 y 128 MiB). Reabrir la rejilla
+  evita descomprimir y decodificar de nuevo. «Acerca de» muestra el uso.
+
 ## v1.1.1 — 2026-11-09
 
 Versión de corrección sobre v1.1.0.

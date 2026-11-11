@@ -21,13 +21,18 @@ const (
 	prefSortMode          = "reader.sort"
 	prefFilterJunk        = "reader.filter_junk"
 	prefIntegrityCheck    = "reader.integrity_check"
+	prefGridThumbSize     = "reader.grid_thumb_size"
 	prefDiskCacheLimitMB  = "cache.disk.limit_mb"
 	defaultDiskCacheLimit = 512 // MiB
+	defaultGridThumbSize  = 160
 )
 
 var (
 	diskLimitLabels = []string{"Desactivada", "256 MB", "512 MB", "1 GB", "2 GB", "4 GB"}
 	diskLimitValues = []int{0, 256, 512, 1024, 2048, 4096}
+
+	gridThumbLabels = []string{"Pequeñas (120 px)", "Medianas (160 px)", "Grandes (200 px)", "Muy grandes (240 px)"}
+	gridThumbValues = []int{120, 160, 200, 240}
 )
 
 // newAppDiskCache crea la caché persistente dentro del directorio de caché de
@@ -76,6 +81,37 @@ func (g *gutterApp) integrityCheck() bool {
 	return g.prefs.BoolWithFallback(prefIntegrityCheck, true)
 }
 
+func (g *gutterApp) gridThumbSizePref() int {
+	if g.prefs == nil {
+		return defaultGridThumbSize
+	}
+	size := g.prefs.IntWithFallback(prefGridThumbSize, defaultGridThumbSize)
+	for _, allowed := range gridThumbValues {
+		if size == allowed {
+			return size
+		}
+	}
+	return defaultGridThumbSize
+}
+
+func gridThumbLabel(size int) string {
+	for i, value := range gridThumbValues {
+		if value == size {
+			return gridThumbLabels[i]
+		}
+	}
+	return gridThumbLabels[1]
+}
+
+func parseGridThumbSize(label string) int {
+	for i, text := range gridThumbLabels {
+		if text == label {
+			return gridThumbValues[i]
+		}
+	}
+	return defaultGridThumbSize
+}
+
 func (g *gutterApp) openOptions() backend.OpenOptions {
 	return backend.OpenOptions{
 		Sort:           g.sortMode(),
@@ -111,6 +147,9 @@ func (g *gutterApp) showReadingOptions() {
 	integrityCheck := widget.NewCheck("Comprobar integridad al abrir (muestra 3 páginas)", nil)
 	integrityCheck.SetChecked(g.integrityCheck())
 
+	thumbSelect := widget.NewSelect(gridThumbLabels, nil)
+	thumbSelect.SetSelected(gridThumbLabel(g.gridThumbSizePref()))
+
 	content := container.NewVBox(
 		widget.NewLabelWithStyle("Orden de las páginas", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		sortSelect,
@@ -120,6 +159,10 @@ func (g *gutterApp) showReadingOptions() {
 		widget.NewLabel("Oculta metadatos y carpetas que macOS/WinRAR dejan dentro del archivo."),
 		widget.NewSeparator(),
 		integrityCheck,
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("Miniaturas de la rejilla", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		thumbSelect,
+		widget.NewLabel("Se aplica la próxima vez que abras la rejilla con M."),
 	)
 
 	d := dialog.NewCustomConfirm(
@@ -134,25 +177,45 @@ func (g *gutterApp) showReadingOptions() {
 			oldSort := g.sortMode()
 			oldJunk := g.filterJunk()
 			oldIntegrity := g.integrityCheck()
+			oldThumbSize := g.gridThumbSizePref()
 
 			newSort := backend.SortNatural
 			if sortSelect.Selected == "Alfabético estricto" {
 				newSort = backend.SortLexicographic
 			}
+			newThumbSize := parseGridThumbSize(thumbSelect.Selected)
 			if g.prefs != nil {
 				g.prefs.SetString(prefSortMode, string(newSort))
 				g.prefs.SetBool(prefFilterJunk, junkCheck.Checked)
 				g.prefs.SetBool(prefIntegrityCheck, integrityCheck.Checked)
+				g.prefs.SetInt(prefGridThumbSize, newThumbSize)
 			}
 
+			if g.gridOpen && newThumbSize != oldThumbSize {
+				g.reopenThumbnailGrid()
+			}
 			if g.comic != nil && (newSort != oldSort || junkCheck.Checked != oldJunk || integrityCheck.Checked != oldIntegrity) {
 				g.reloadPreservingPage()
 			}
 		},
 		g.window,
 	)
-	d.Resize(fyne.NewSize(540, 380))
+	d.Resize(fyne.NewSize(560, 520))
 	g.showDialog(d)
+}
+
+// reopenThumbnailGrid conserva la página seleccionada al cambiar el tamaño de
+// las miniaturas desde las opciones de lectura.
+func (g *gutterApp) reopenThumbnailGrid() {
+	if !g.gridOpen {
+		return
+	}
+	index := g.gridSelection
+	g.hideThumbnailGrid()
+	g.showThumbnailGrid()
+	if g.gridOpen {
+		g.setGridSelection(index, true)
+	}
 }
 
 // reloadPreservingPage reabre el cómic con los nuevos ajustes. El orden puede
@@ -231,6 +294,8 @@ func (g *gutterApp) cacheSummary() string {
 		}
 		fmt.Fprintf(&body, "Disco (páginas): %d · %s de %s\n",
 			stats.Pages, formatBytes(stats.PageBytes), limit)
+		fmt.Fprintf(&body, "Disco (miniaturas): %d · %s de %s\n",
+			stats.Thumbs, formatBytes(stats.ThumbBytes), formatBytes(stats.ThumbLimit))
 		fmt.Fprintf(&body, "Disco (índices): %d · %s",
 			stats.Indexes, formatBytes(stats.IndexBytes))
 	} else {

@@ -367,6 +367,10 @@ func toggleEnabled(button *widget.Button, enabled bool) {
 // Arriba/Abajo desplazan el scroll; +/− ajustan el zoom, 0 vuelve a ajuste al
 // ancho, 1 aplica 100 % y F11/Esc alternan el modo de lectura limpia.
 func (g *gutterApp) handleKey(event *fyne.KeyEvent) {
+	if g.gridOpen {
+		g.handleGridKey(event)
+		return
+	}
 	if g.gotoMode && g.handleGotoKey(event) {
 		return
 	}
@@ -392,6 +396,8 @@ func (g *gutterApp) handleKey(event *fyne.KeyEvent) {
 		}
 	case fyne.KeyG:
 		g.openGotoPage()
+	case fyne.KeyM:
+		g.toggleThumbnailGrid()
 	case fyne.KeyUp:
 		g.scrollVertical(g.scrollStep())
 	case fyne.KeyDown:
