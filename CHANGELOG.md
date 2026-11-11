@@ -4,7 +4,7 @@ Todas las versiones publicadas de Gutter, con los cambios más visibles para
 quien usa el lector. El ejecutable de cada versión está en
 [Releases](https://github.com/Skeiceee/gutter/releases).
 
-## v1.2.0 (en preparación)
+## v1.2.0 — 2026-11-10
 
 ### Rejilla de páginas
 
