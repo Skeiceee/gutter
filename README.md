@@ -67,8 +67,12 @@ caché LRU en RAM.
   lectura…».
 - **RAR sólidos:** progreso del recorrido secuencial en la barra inferior y
   `Esc` para cancelar un salto largo, volviendo a la última página dibujada.
-- Caché de miniaturas independiente (24 MiB) con reducción a resolución de
-  miniatura, lista para una tira o rejilla de páginas.
+- **Rejilla de páginas (`M`)**: vista general del cómic con miniaturas
+  responsive, carga perezosa alrededor de la zona visible, navegación por
+  teclado, indicador de dobles páginas y errores por celda. El tamaño de las
+  miniaturas (120–240 px) se ajusta en «Ver > Opciones de lectura…».
+- Caché de miniaturas independiente (24 MiB en RAM) con reducción a resolución
+  de miniatura, persistencia en disco y presupuesto propio.
 - Tema oscuro fijo: `#121212`, paneles `#1E1E1E` y acento `#007ACC`.
 - Ventana inicial segura (900×800 objetivo), ajustada al área útil del monitor
   y siempre en modo ventana normal; logo SVG y navegación por teclado.
@@ -88,6 +92,7 @@ gutter/
     ├── app/                # Lógica principal de la aplicación (paquete app).
     │   ├── app.go          # Struct gutterApp, NewGutterApp, Run(), arranque.
     │   ├── dialogs.go      # Diálogos, Abrir cómic, Cancelar carga.
+    │   ├── grid.go         # Rejilla de miniaturas, carga perezosa y navegación.
     │   ├── help.go         # Menú Archivo/Ver/Traducción/Ayuda, F1, "Acerca de".
     │   ├── hud.go          # HUD de página en pantalla completa y selector G.
     │   ├── library.go      # Progreso persistente, recientes, bienvenida.
@@ -99,8 +104,8 @@ gutter/
     │   └── logos/          # Logotipos SVG (se embeben en el binario).
     │       └── *_test.go   # Pruebas unitarias del paquete app.
     ├── backend/            # Índice RAR/ZIP, extracción, decodificación, caché.
-    │   ├── backend.go      # Motor de lectura, prefetch, estadísticas de memoria.
-    │   ├── disk_cache.go   # Caché persistente del índice y de páginas RGBA.
+    │   ├── backend.go      # Motor de lectura, prefetch, miniaturas, estadísticas.
+    │   ├── disk_cache.go   # Caché persistente de índices, páginas y miniaturas.
     │   ├── integrity.go    # Verificación rápida con presupuesto de tiempo.
     │   ├── options.go      # OpenOptions, SortMode y PageProblem.
     │   └── *_test.go
@@ -244,11 +249,12 @@ round-trip de la lista de recientes, la agrupación de líneas OCR en bocadillos
 el renderizado de la capa traducida, las peticiones a LibreTranslate/DeepL,
 la cancelación de cargas, el cierre sincronizado del ZIP, la caché separada de
 miniaturas, el round-trip y la evicción de la caché en disco, la restauración de
-índices ZIP/RAR, la detección de imágenes corruptas, la precarga y las
-preferencias de lectura. El motor se validó además con cómics RAR5 normales y
-sólidos generados para la ocasión, con páginas AVIF y WebP reales, y con una
-página de bocadillos traducida de extremo a extremo usando el OCR integrado de
-Windows y MyMemory.
+índices ZIP/RAR, la detección de imágenes corruptas, la precarga, las
+preferencias de lectura y la rejilla de páginas (ciclo de vida, navegación por
+columnas, selección, estados de celda y resultados asíncronos). El motor se
+validó además con cómics RAR5 normales y sólidos generados para la ocasión, con
+páginas AVIF y WebP reales, y con una página de bocadillos traducida de extremo
+a extremo usando el OCR integrado de Windows y MyMemory.
 
 ### Benchmarks
 
@@ -259,7 +265,6 @@ CGO_ENABLED=1 go test -run '^$' -bench . -benchmem ./...
 Incluye `BenchmarkPageCacheLRU`, `BenchmarkNaturalOrder`,
 `BenchmarkSpreadDetection`, `BenchmarkCropHalf` y `BenchmarkMakeThumbnail`.
 
-
 ## Atajos de teclado
 
 | Tecla | Acción |
@@ -269,18 +274,24 @@ Incluye `BenchmarkPageCacheLRU`, `BenchmarkNaturalOrder`,
 | `↑` / `↓` | Desplazar el scroll verticalmente. |
 | `Inicio` / `Fin` | Primera / última página. |
 | `G` + número + `Enter` | Ir a una página concreta (indicador flotante). |
+| `M` | Abrir o cerrar la rejilla de páginas. |
 | `+` o `=` | Aumentar zoom. |
 | `-` | Reducir zoom. |
 | `0` | Ajustar la página al ancho disponible. |
 | `1` | Zoom 100 % (1 píxel de imagen = 1 unidad Fyne). |
 | `F11` | Entrar/salir del modo limpio a pantalla completa (muestra `Página X / N` arriba a la derecha). |
-| `Esc` | Cancelar una carga larga (RAR sólido) o salir del modo limpio. |
+| `Esc` | Cerrar la rejilla, cancelar una carga larga (RAR sólido) o salir del modo limpio. |
 | `F1` o `?` | Mostrar la hoja de atajos. |
 | `T` | Reconocer y traducir la página actual (otra pulsación oculta la capa). |
 | `Ctrl+O` | Abrir un cómic. |
 | `Ctrl+R` | Abrir la lista de recientes. |
 | Rueda del ratón | Desplazar la página vertical u horizontalmente. |
 | Arrastrar y soltar | Abrir un `.cbr`/`.cbz` sobre la ventana. |
+
+Dentro de la rejilla, las flechas mueven la selección por filas y columnas,
+`Inicio`/`Fin` van a la primera o última miniatura, `Av Pág`/`Re Pág` saltan
+cuatro filas y `Enter` abre la página seleccionada. Un clic sobre una miniatura
+también la abre.
 
 ## Tema y mapeo a Fyne v2
 
@@ -384,7 +395,20 @@ Fyne v2 sustituyó los métodos `BackgroundColor()`, `ButtonColor()`, etc. por u
 - **Caché de miniaturas:** `Comic.ThumbnailContext` mantiene una LRU propia de
   24 MiB, separada de los 96 MiB de páginas completas. Lee y decodifica la
   entrada, la reduce con `x/image/draw` y guarda solo el RGBA pequeño, de modo
-  que una futura tira o rejilla de miniaturas no desplace la página en lectura.
+  que la rejilla no desplace la página en lectura. Las miniaturas también se
+  persisten como `.gth` en un presupuesto separado (un cuarto del límite de
+  páginas, acotado entre 16 y 128 MiB) para no expulsar páginas completas.
+- **Rejilla de páginas (`grid.go`):** es una capa sobre `RootLayout`, de modo que
+  también cubre la barra inferior. Cada celda es un `widget.BaseWidget` dibujado
+  a mano para controlar borde de selección, número, marca «DOBLE» y aviso de
+  error. Solo se piden las miniaturas de la zona visible más dos filas de
+  margen; el scroll dispara el siguiente bloque y `gridLoading` evita duplicar
+  peticiones. En un RAR sólido la rejilla pide todo el lote de una vez
+  (`ThumbnailsContext`), porque cada bloque volvería a recorrer el contenedor
+  desde el principio. Los resultados llegan desde una goroutine y se aplican
+  con `fyne.Do`; un contador de secuencia descarta los lotes de una rejilla ya
+  cerrada. El tamaño se guarda en `reader.grid_thumb_size` y se aplica al
+  reabrir la rejilla.
 - **Cancelación y single-flight:** cada carga usa un contexto propio y un
   `loadCall` con contador de referencias. Si todos los que esperan cancelan, se
   cancela la lectura real; `CancelLoads` retira además la llamada del mapa para

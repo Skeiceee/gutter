@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,11 @@ const (
 	diskIndexVersion = 1
 	diskPageVersion  = uint32(2)
 	diskPageMagic    = "GTP1"
+
+	// Las miniaturas comparten el cómic y la fecha de la identidad, pero viven
+	// en un directorio y un presupuesto aparte para que no expulsen páginas.
+	maxThumbDiskLimit int64 = 128 << 20
+	minThumbDiskLimit int64 = 16 << 20
 )
 
 // indexCacheEntry es el JSON que se guarda por cómic y configuración.
@@ -61,20 +67,27 @@ type DiskCacheStats struct {
 	Pages      int
 	PageBytes  int64
 	PageLimit  int64
+	Thumbs     int
+	ThumbBytes int64
+	ThumbLimit int64
 }
 
 // DiskCache administra los archivos de caché. Es seguro para uso concurrente.
 type DiskCache struct {
 	mu sync.Mutex
 
-	dir      string
-	indexDir string
-	pagesDir string
+	dir       string
+	indexDir  string
+	pagesDir  string
+	thumbsDir string
 
 	limit      int64
+	thumbLimit int64
 	generation uint64
 	pageBytes  int64
 	pageCount  int
+	thumbBytes int64
+	thumbCount int
 	indexBytes int64
 	indexCount int
 }
@@ -86,10 +99,12 @@ func NewDiskCache(dir string, limit int64) *DiskCache {
 		limit = 0
 	}
 	d := &DiskCache{
-		dir:      dir,
-		indexDir: filepath.Join(dir, "index"),
-		pagesDir: filepath.Join(dir, "pages"),
-		limit:    limit,
+		dir:        dir,
+		indexDir:   filepath.Join(dir, "index"),
+		pagesDir:   filepath.Join(dir, "pages"),
+		thumbsDir:  filepath.Join(dir, "thumbs"),
+		limit:      limit,
+		thumbLimit: thumbDiskBudget(limit),
 	}
 	if dir == "" {
 		d.dir = ""
@@ -103,8 +118,28 @@ func NewDiskCache(dir string, limit int64) *DiskCache {
 		d.dir = ""
 		return d
 	}
+	if err := os.MkdirAll(d.thumbsDir, 0o755); err != nil {
+		d.dir = ""
+		return d
+	}
 	d.scan()
 	return d
+}
+
+// thumbDiskBudget deriva un presupuesto pequeño para las miniaturas. No debe
+// competir con las páginas completas, que son las que sostienen la lectura.
+func thumbDiskBudget(pageLimit int64) int64 {
+	if pageLimit <= 0 {
+		return 0
+	}
+	budget := pageLimit / 4
+	if budget < minThumbDiskLimit {
+		budget = minThumbDiskLimit
+	}
+	if budget > maxThumbDiskLimit {
+		budget = maxThumbDiskLimit
+	}
+	return budget
 }
 
 // Enabled indica si la caché tiene un directorio utilizable.
@@ -124,12 +159,15 @@ func (d *DiskCache) SetLimit(limit int64) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.limit = limit
+	d.thumbLimit = thumbDiskBudget(limit)
 	d.generation++
 	if limit == 0 {
 		d.removeAllPagesLocked()
+		d.removeAllThumbsLocked()
 		return
 	}
 	d.enforceLimitLocked()
+	d.enforceThumbLimitLocked()
 }
 
 // Stats devuelve los contadores actuales sin tocar el disco.
@@ -145,6 +183,9 @@ func (d *DiskCache) Stats() DiskCacheStats {
 		Pages:      d.pageCount,
 		PageBytes:  d.pageBytes,
 		PageLimit:  d.limit,
+		Thumbs:     d.thumbCount,
+		ThumbBytes: d.thumbBytes,
+		ThumbLimit: d.thumbLimit,
 	}
 }
 
@@ -167,7 +208,12 @@ func (d *DiskCache) Clear() error {
 		d.dir = ""
 		return err
 	}
+	if err := os.MkdirAll(d.thumbsDir, 0o755); err != nil {
+		d.dir = ""
+		return err
+	}
 	d.pageBytes, d.pageCount = 0, 0
+	d.thumbBytes, d.thumbCount = 0, 0
 	d.indexBytes, d.indexCount = 0, 0
 	d.generation++
 	return nil
@@ -322,6 +368,81 @@ func (d *DiskCache) SavePage(identity, name string, img *image.RGBA) {
 	d.enforceLimitLocked()
 }
 
+// LoadThumbnail recupera una miniatura persistida. El tamaño máximo forma
+// parte de la clave para que cambiar el tamaño de la rejilla no reutilice una
+// imagen con la resolución equivocada.
+func (d *DiskCache) LoadThumbnail(identity, name string, maxSize int) (*image.RGBA, bool) {
+	if !d.Enabled() || identity == "" || name == "" {
+		return nil, false
+	}
+	maxSize = normalizeThumbSize(maxSize)
+	dst := filepath.Join(d.thumbsDir, d.thumbName(identity, name, maxSize))
+	f, err := os.Open(dst)
+	if err != nil {
+		return nil, false
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxPageBytes+(1<<20)))
+	_ = f.Close()
+	if err != nil {
+		return nil, false
+	}
+
+	img, err := decodeDiskPage(data)
+	if err != nil {
+		_ = os.Remove(dst)
+		return nil, false
+	}
+
+	now := time.Now()
+	_ = os.Chtimes(dst, now, now)
+	return img, true
+}
+
+// SaveThumbnail guarda una miniatura con el mismo formato binario que las
+// páginas. Se llama en segundo plano desde el backend.
+func (d *DiskCache) SaveThumbnail(identity, name string, maxSize int, img *image.RGBA) {
+	if !d.Enabled() || identity == "" || name == "" || img == nil {
+		return
+	}
+	maxSize = normalizeThumbSize(maxSize)
+
+	d.mu.Lock()
+	limit := d.thumbLimit
+	generation := d.generation
+	d.mu.Unlock()
+	if limit <= 0 {
+		return
+	}
+
+	payload, err := encodeDiskPage(img)
+	if err != nil {
+		return
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.dir == "" || d.thumbLimit <= 0 || d.generation != generation {
+		return
+	}
+
+	dst := filepath.Join(d.thumbsDir, d.thumbName(identity, name, maxSize))
+	old := fileSize(dst)
+	size, err := writeFileAtomic(dst, payload)
+	if err != nil {
+		return
+	}
+	if old > 0 {
+		d.thumbBytes -= old
+		d.thumbCount--
+	}
+	d.thumbBytes += size
+	d.thumbCount++
+	if d.thumbCount < 0 {
+		d.thumbCount = 0
+	}
+	d.enforceThumbLimitLocked()
+}
+
 // indexName usa una clave estable por cómic y configuración.
 func (d *DiskCache) indexName(identity string, opts OpenOptions) string {
 	return diskHash(
@@ -334,6 +455,10 @@ func (d *DiskCache) indexName(identity string, opts OpenOptions) string {
 
 func (d *DiskCache) pageName(identity, name string) string {
 	return diskHash(identity, name) + ".gtp"
+}
+
+func (d *DiskCache) thumbName(identity, name string, maxSize int) string {
+	return diskHash(identity, name, strconv.Itoa(maxSize)) + ".gth"
 }
 
 func (d *DiskCache) scan() {
@@ -366,13 +491,40 @@ func (d *DiskCache) scan() {
 			d.pageBytes += info.Size()
 		}
 	}
+
+	entries, err = os.ReadDir(d.thumbsDir)
+	if err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".gth") {
+				continue
+			}
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			d.thumbCount++
+			d.thumbBytes += info.Size()
+		}
+	}
 	d.enforceLimitLocked()
+	d.enforceThumbLimitLocked()
 }
 
 // enforceLimitLocked elimina las páginas menos usadas hasta cumplir el límite.
 // Se llama con d.mu tomado.
 func (d *DiskCache) enforceLimitLocked() {
-	if d.dir == "" || d.limit <= 0 || d.pageBytes <= d.limit {
+	d.enforceDirLimitLocked(d.pagesDir, ".gtp", &d.pageBytes, &d.pageCount, d.limit)
+}
+
+// enforceThumbLimitLocked hace lo mismo con el presupuesto de miniaturas.
+func (d *DiskCache) enforceThumbLimitLocked() {
+	d.enforceDirLimitLocked(d.thumbsDir, ".gth", &d.thumbBytes, &d.thumbCount, d.thumbLimit)
+}
+
+// enforceDirLimitLocked comparte la evicción aproximada por fecha de uso entre
+// páginas y miniaturas.
+func (d *DiskCache) enforceDirLimitLocked(dir, suffix string, bytes *int64, count *int, limit int64) {
+	if d.dir == "" || limit <= 0 || *bytes <= limit {
 		return
 	}
 
@@ -381,13 +533,13 @@ func (d *DiskCache) enforceLimitLocked() {
 		size    int64
 		modTime time.Time
 	}
-	entries, err := os.ReadDir(d.pagesDir)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	files := make([]diskFile, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".gtp") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), suffix) {
 			continue
 		}
 		info, err := entry.Info()
@@ -399,20 +551,20 @@ func (d *DiskCache) enforceLimitLocked() {
 	sort.Slice(files, func(i, j int) bool { return files[i].modTime.Before(files[j].modTime) })
 
 	for _, file := range files {
-		if d.pageBytes <= d.limit {
+		if *bytes <= limit {
 			break
 		}
-		if err := os.Remove(filepath.Join(d.pagesDir, file.name)); err != nil {
+		if err := os.Remove(filepath.Join(dir, file.name)); err != nil {
 			break
 		}
-		d.pageBytes -= file.size
-		d.pageCount--
+		*bytes -= file.size
+		*count--
 	}
-	if d.pageCount < 0 {
-		d.pageCount = 0
+	if *count < 0 {
+		*count = 0
 	}
-	if d.pageBytes < 0 {
-		d.pageBytes = 0
+	if *bytes < 0 {
+		*bytes = 0
 	}
 }
 
@@ -420,6 +572,12 @@ func (d *DiskCache) removeAllPagesLocked() {
 	_ = os.RemoveAll(d.pagesDir)
 	_ = os.MkdirAll(d.pagesDir, 0o755)
 	d.pageBytes, d.pageCount = 0, 0
+}
+
+func (d *DiskCache) removeAllThumbsLocked() {
+	_ = os.RemoveAll(d.thumbsDir)
+	_ = os.MkdirAll(d.thumbsDir, 0o755)
+	d.thumbBytes, d.thumbCount = 0, 0
 }
 
 // archiveIdentity combina ruta, tamaño y fecha de modificación. Si el archivo

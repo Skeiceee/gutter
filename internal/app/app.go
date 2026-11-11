@@ -103,6 +103,24 @@ type gutterApp struct {
 	gotoBuffer       string
 	gotoError        string
 
+	// Rejilla de páginas. Es una capa a pantalla completa sobre el lector que
+	// carga miniaturas solo alrededor de la zona visible.
+	gridOverlay   *fyne.Container
+	gridOpen      bool
+	gridScroll    *container.Scroll
+	gridCells     []*thumbnailCell
+	gridLoaded    []bool
+	gridFailed    []bool
+	gridLoading   []bool
+	gridSelection int
+	gridThumbSize int
+	gridPending   int
+	gridSeq       atomic.Uint64
+	gridCtx       context.Context
+	gridCancel    context.CancelFunc
+	gridStatus    *widget.Label
+	gridComic     *backend.Comic
+
 	// Diálogo modal actual. Garantiza que solo haya uno abierto a la vez,
 	// aunque el usuario pulse un atajo repetidamente.
 	activeDialog dialog.Dialog
@@ -257,7 +275,12 @@ func NewGutterApp(a fyne.App) *gutterApp {
 
 	g.bottomBar = g.buildBottomBar()
 
-	g.root = container.New(&ui.RootLayout{}, readerStack, g.bottomBar)
+	baseRoot := container.New(&ui.RootLayout{}, readerStack, g.bottomBar)
+	// La rejilla vive fuera de RootLayout para poder cubrir también la barra
+	// inferior en modo ventana. Nace oculta y se rellena al abrir M.
+	g.gridOverlay = container.NewStack()
+	g.gridOverlay.Hide()
+	g.root = container.NewStack(baseRoot, g.gridOverlay)
 	g.window.SetContent(g.root)
 
 	// Arrastrar y soltar un .cbr/.cbz sobre la ventana.
@@ -274,7 +297,7 @@ func NewGutterApp(a fyne.App) *gutterApp {
 	// widget con foco ha consumido la tecla.
 	g.window.Canvas().SetOnTypedKey(g.handleKey)
 	g.window.Canvas().SetOnTypedRune(func(r rune) {
-		if r == '?' {
+		if r == '?' && !g.gridOpen {
 			g.showHelp()
 		}
 	})

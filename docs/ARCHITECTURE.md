@@ -27,6 +27,7 @@ Orquesta la ventana Fyne y toda la lógica de lectura.
 |---------|-----------------|
 | `app.go` | Struct `gutterApp`, `NewGutterApp()`, `Run()`, `FitWindowToPrimaryScreen()`. Estado global de la app (página actual, zoom, modo limpio, etc.). |
 | `dialogs.go` | `showDialog`, `hideActiveDialog`, `openFile`, `LoadComic`, `cancelPageWork`, `cancelLoading`, `isComicPath`, `loadBrandResource`. |
+| `grid.go` | Rejilla de páginas: celdas de miniatura, carga perezosa por bloques, navegación por teclado, selección y estados de error. |
 | `help.go` | Menú Archivo/Ver/Traducción/Ayuda, hoja de atajos (`F1`, `?`), "Acerca de". |
 | `hud.go` | Indicador flotante de página en pantalla completa y selector `G`. |
 | `library.go` | Progreso persistente, lista de recientes, pantalla de bienvenida. |
@@ -57,14 +58,19 @@ de 96 MiB con *single-flight*, precarga y caché persistente opcional.
 
 | Archivo | Responsabilidad |
 |---------|-----------------|
-| `backend.go` | Motor de lectura, índice RAR/ZIP, `PrefetchContext`, estadísticas de memoria y limpieza de cachés. |
-| `disk_cache.go` | Índice `.json` por tamaño/fecha/configuración y páginas `.gtp` en RGBA crudo; evicción LRU y límite configurable. |
+| `backend.go` | Motor de lectura, índice RAR/ZIP, `PrefetchContext`, `ThumbnailsContext`, estadísticas de memoria y limpieza de cachés. |
+| `disk_cache.go` | Índice `.json` por tamaño/fecha/configuración, páginas `.gtp` en RGBA crudo y miniaturas `.gth`; evicción LRU y presupuestos separados. |
 | `integrity.go` | Comprobación estructural y por muestreo con presupuesto de 1,2 s; devuelve `PageProblem`. |
 | `options.go` | `OpenOptions`, `SortMode` (natural/lexicográfico) y `PageProblem`. |
 
 - Detección por *magic bytes*: `Rar!` para RAR, `PK` para ZIP.
 - Corte de doble página con `SubImage` compactado a `*image.RGBA`.
 - Caché LRU de 96 MiB; caché de miniaturas independiente de 24 MiB.
+- `ThumbnailsContext` entrega varias miniaturas por nombre. En RAR sólidos
+  recorre el contenedor una sola vez y descarta las entradas que no se piden.
+- Las miniaturas se guardan en `.gth` con la misma cabecera que las páginas,
+  en un directorio y presupuesto aparte (25 % del límite de páginas, entre 16 y
+  128 MiB). La clave incluye el tamaño máximo para no mezclar resoluciones.
 - `OpenComic` conserva el comportamiento histórico (memoria, orden natural); la
   app usa `OpenComicWithOptions` para activar caché, filtro e integridad.
 
@@ -149,6 +155,36 @@ LoadComic(path) (dialogs.go)
                └─► prefetchAdjacent (tres siguientes + anterior)
 ```
 
+### Flujo de la rejilla de páginas
+
+```
+M / Ver > Rejilla de páginas
+        │
+        ▼
+grid.go: showThumbnailGrid
+        │
+        ├─► crea una celda por página y la capa sobre RootLayout
+        ├─► espera al primer layout (60 ms) para conocer columnas y scroll
+        └─► loadGridVisible
+               │
+               ├─► ZIP / RAR normal: lote de la zona visible + 2 filas
+               └─► RAR sólido: lote completo (0..n-1) en una sola pasada
+                      │
+                      ▼
+               Comic.ThumbnailsContext (backend.go)
+                      ├─► memoria (LRU de miniaturas)
+                      ├─► disco (.gth, presupuesto separado)
+                      └─► readEntry + image.Decode + makeThumbnail
+                             │
+                             ▼
+               callback → fyne.Do → applyGridThumbnail
+                      ├─► celda lista, «DOBLE» o error
+                      └─► updateGridStatus
+```
+
+Al cerrar (`M`, `Esc`, `Enter` o cambio de cómic) se cancela el contexto, se
+incrementa `gridSeq` para descartar resultados en vuelo y se vacía la capa.
+
 ---
 
 ## Reglas de diseño
@@ -161,6 +197,7 @@ LoadComic(path) (dialogs.go)
 6. **Zoom por defecto al 65%**: la página ocupa el 65% del ancho disponible, dejando aire a los lados.
 7. **La caché en disco es opcional y best-effort**: un fallo de escritura nunca impide leer; la app puede funcionar sin directorio de caché.
 8. **La lectura nunca se bloquea por una página rota**: los errores de página se muestran en el área de lectura con «Reintentar»; solo los fallos al abrir usan diálogo.
+9. **La rejilla no bloquea la lectura**: cancela sus cargas al cerrarse, descarta lotes antiguos por secuencia y pide solo la zona visible, salvo en RAR sólidos donde un único recorrido secuencial es más barato.
 
 ---
 

@@ -61,6 +61,7 @@ func (g *gutterApp) loadComic(comicPath, pageName string) {
 		return
 	}
 
+	g.hideThumbnailGrid()
 	g.cancelPageWork()
 	g.clearPageError()
 	seq := g.pageSeq.Add(1)

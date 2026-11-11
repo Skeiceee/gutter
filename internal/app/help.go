@@ -41,6 +41,7 @@ func (g *gutterApp) installMenu() {
 
 	viewItems := []*fyne.MenuItem{
 		fyne.NewMenuItem("Modo limpio (F11)", g.toggleCleanMode),
+		fyne.NewMenuItem("Rejilla de páginas (M)", g.toggleThumbnailGrid),
 		fyne.NewMenuItem("Ir a página… (G)", g.openGotoPage),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Modo una página", func() {
@@ -165,6 +166,8 @@ func (g *gutterApp) showHelp() {
 		shortcutRow("↑ / ↓", "Desplazar la página verticalmente"),
 		shortcutRow("Inicio / Fin", "Primera / última página"),
 		shortcutRow("G + número + Enter", "Ir a una página concreta"),
+		shortcutRow("M", "Abrir o cerrar la rejilla de páginas"),
+		shortcutRow("↑↓←→ + Enter", "Elegir una miniatura y abrirla"),
 		sectionLabel("Zoom"),
 		shortcutRow("+ / −", "Aumentar o reducir el zoom"),
 		shortcutRow("0", "Ajustar la página al ancho"),
