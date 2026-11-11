@@ -71,6 +71,9 @@ de 96 MiB con *single-flight*, precarga y caché persistente opcional.
 - Las miniaturas se guardan en `.gth` con la misma cabecera que las páginas,
   en un directorio y presupuesto aparte (25 % del límite de páginas, entre 16 y
   128 MiB). La clave incluye el tamaño máximo para no mezclar resoluciones.
+- La rejilla pide las miniaturas a 1,5 × tamaño lógico × escala de pantalla y
+  las reduce con `CatmullRom`. Así el marco nunca tiene que ampliarlas y el
+  texto de las páginas se mantiene legible.
 - `OpenComic` conserva el comportamiento histórico (memoria, orden natural); la
   app usa `OpenComicWithOptions` para activar caché, filtro e integridad.
 

@@ -69,8 +69,10 @@ caché LRU en RAM.
   `Esc` para cancelar un salto largo, volviendo a la última página dibujada.
 - **Rejilla de páginas (`M`)**: vista general del cómic con miniaturas
   responsive, carga perezosa alrededor de la zona visible, navegación por
-  teclado, indicador de dobles páginas y errores por celda. El tamaño de las
-  miniaturas (120–240 px) se ajusta en «Ver > Opciones de lectura…».
+  teclado, indicador de dobles páginas y errores por celda. Las miniaturas se
+  generan por encima del tamaño lógico y del DPI de la pantalla para que se
+  vean nítidas. El tamaño (120–240 px) se ajusta en «Ver > Opciones de
+  lectura…».
 - Caché de miniaturas independiente (24 MiB en RAM) con reducción a resolución
   de miniatura, persistencia en disco y presupuesto propio.
 - Tema oscuro fijo: `#121212`, paneles `#1E1E1E` y acento `#007ACC`.
@@ -395,9 +397,12 @@ Fyne v2 sustituyó los métodos `BackgroundColor()`, `ButtonColor()`, etc. por u
 - **Caché de miniaturas:** `Comic.ThumbnailContext` mantiene una LRU propia de
   24 MiB, separada de los 96 MiB de páginas completas. Lee y decodifica la
   entrada, la reduce con `x/image/draw` y guarda solo el RGBA pequeño, de modo
-  que la rejilla no desplace la página en lectura. Las miniaturas también se
-  persisten como `.gth` en un presupuesto separado (un cuarto del límite de
-  páginas, acotado entre 16 y 128 MiB) para no expulsar páginas completas.
+  que la rejilla no desplace la página en lectura. Las miniaturas se generan a
+  1,5 veces el tamaño lógico multiplicado por el DPI de la pantalla y se
+  reducen con `CatmullRom`; así Fyne siempre las muestra reducidas y no
+  ampliadas. También se persisten como `.gth` en un presupuesto separado (un
+  cuarto del límite de páginas, acotado entre 16 y 128 MiB) para no expulsar
+  páginas completas.
 - **Rejilla de páginas (`grid.go`):** es una capa sobre `RootLayout`, de modo que
   también cubre la barra inferior. Cada celda es un `widget.BaseWidget` dibujado
   a mano para controlar borde de selección, número, marca «DOBLE» y aviso de

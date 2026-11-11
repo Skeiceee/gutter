@@ -39,6 +39,9 @@ const (
 	diskIndexVersion = 1
 	diskPageVersion  = uint32(2)
 	diskPageMagic    = "GTP1"
+	// Cambiar el filtro o la resolución de generación invalida las miniaturas
+	// antiguas sin borrar la caché entera.
+	diskThumbVersion = "2"
 
 	// Las miniaturas comparten el cómic y la fecha de la identidad, pero viven
 	// en un directorio y un presupuesto aparte para que no expulsen páginas.
@@ -458,7 +461,7 @@ func (d *DiskCache) pageName(identity, name string) string {
 }
 
 func (d *DiskCache) thumbName(identity, name string, maxSize int) string {
-	return diskHash(identity, name, strconv.Itoa(maxSize)) + ".gth"
+	return diskHash(identity, name, strconv.Itoa(maxSize), diskThumbVersion) + ".gth"
 }
 
 func (d *DiskCache) scan() {

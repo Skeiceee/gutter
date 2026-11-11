@@ -965,7 +965,20 @@ func makeThumbnail(src image.Image, maxSize int) *image.RGBA {
 	width := max(1, int(float64(b.Dx())*scale))
 	height := max(1, int(float64(b.Dy())*scale))
 	dst := image.NewRGBA(image.Rect(0, 0, width, height))
-	xdraw.ApproxBiLinear.Scale(dst, dst.Bounds(), src, b, draw.Src, nil)
+
+	// CatmullRom directo sobre una página de 3000 px es muy caro. Cuando el
+	// original es mucho mayor que la miniatura se hace una reducción rápida a
+	// 2× el tamaño final y solo el último paso usa el filtro de calidad.
+	if b.Dx() > maxSize*3 || b.Dy() > maxSize*3 {
+		pre := image.NewRGBA(image.Rect(0, 0, width*2, height*2))
+		xdraw.ApproxBiLinear.Scale(pre, pre.Bounds(), src, b, draw.Src, nil)
+		xdraw.CatmullRom.Scale(dst, dst.Bounds(), pre, pre.Bounds(), draw.Src, nil)
+		return dst
+	}
+
+	// CatmullRom conserva mejor los trazos y el texto de las páginas que el
+	// bilineal aproximado, que dejaba las miniaturas especialmente blandas.
+	xdraw.CatmullRom.Scale(dst, dst.Bounds(), src, b, draw.Src, nil)
 	return dst
 }
 

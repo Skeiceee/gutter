@@ -105,21 +105,22 @@ type gutterApp struct {
 
 	// Rejilla de páginas. Es una capa a pantalla completa sobre el lector que
 	// carga miniaturas solo alrededor de la zona visible.
-	gridOverlay   *fyne.Container
-	gridOpen      bool
-	gridScroll    *container.Scroll
-	gridCells     []*thumbnailCell
-	gridLoaded    []bool
-	gridFailed    []bool
-	gridLoading   []bool
-	gridSelection int
-	gridThumbSize int
-	gridPending   int
-	gridSeq       atomic.Uint64
-	gridCtx       context.Context
-	gridCancel    context.CancelFunc
-	gridStatus    *widget.Label
-	gridComic     *backend.Comic
+	gridOverlay     *fyne.Container
+	gridOpen        bool
+	gridScroll      *container.Scroll
+	gridCells       []*thumbnailCell
+	gridLoaded      []bool
+	gridFailed      []bool
+	gridLoading     []bool
+	gridSelection   int
+	gridThumbSize   int
+	gridThumbRender int
+	gridPending     int
+	gridSeq         atomic.Uint64
+	gridCtx         context.Context
+	gridCancel      context.CancelFunc
+	gridStatus      *widget.Label
+	gridComic       *backend.Comic
 
 	// Diálogo modal actual. Garantiza que solo haya uno abierto a la vez,
 	// aunque el usuario pulse un atajo repetidamente.

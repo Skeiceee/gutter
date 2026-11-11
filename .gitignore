@@ -1,7 +1,9 @@
 # Binarios de desarrollo
 /Gutter
 /Gutter.exe
+/Gutter.exe~
 /Gutter-debug.exe
+/Gutter-debug.exe~
 /gutter
 /gutter.exe
 *.test

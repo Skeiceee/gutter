@@ -112,6 +112,25 @@ func TestGridCellSizeReservesLabelSpace(t *testing.T) {
 	}
 }
 
+// La resolución pedida al backend debe cubrir el alto real del marco y el
+// factor de escala de la pantalla; si no, Fyne amplía la miniatura y se ve
+// borrosa.
+func TestGridThumbnailRenderSizeCoversCell(t *testing.T) {
+	g, _ := openTestGrid(t, 4)
+
+	for _, size := range gridThumbValues {
+		g.gridThumbSize = size
+		render := g.gridThumbnailRenderSize()
+		imageHeight := gridCellSize(size).Height - 36 // espacio del número y márgenes
+		if float32(render) < imageHeight {
+			t.Errorf("tamaño %d: render %d < alto de imagen %.0f", size, render, imageHeight)
+		}
+		if render > 1024 {
+			t.Errorf("tamaño %d: render %d supera el máximo del backend", size, render)
+		}
+	}
+}
+
 func TestGridNavigationByColumns(t *testing.T) {
 	g, _ := openTestGrid(t, 100)
 

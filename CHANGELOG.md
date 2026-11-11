@@ -22,6 +22,10 @@ quien usa el lector. El ejecutable de cada versión está en
   y aviso «No se pudo cargar» con el resto de la rejilla operativa.
 - **Tamaño configurable**: 120, 160, 200 o 240 px en «Ver > Opciones de
   lectura…»; se aplica al reabrir la rejilla y se conserva entre sesiones.
+- **Miniaturas nítidas**: se generan a 1,5 veces el tamaño lógico multiplicado
+  por el DPI de la pantalla y se reducen con `CatmullRom`. Fyne las muestra con
+  filtro suave, así que nunca amplía una imagen pequeña ni deja el texto
+  emborronado.
 - **Caché persistente de miniaturas**: archivos `.gth` en un presupuesto
   separado (25 % del límite de páginas, entre 16 y 128 MiB). Reabrir la rejilla
   evita descomprimir y decodificar de nuevo. «Acerca de» muestra el uso.

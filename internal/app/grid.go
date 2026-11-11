@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 	"strings"
 	"time"
 
@@ -70,7 +71,9 @@ func newThumbnailCell(index int, name string, cellSize fyne.Size, onTap func(int
 
 	cell.image = canvas.NewImageFromImage(nil)
 	cell.image.FillMode = canvas.ImageFillContain
-	cell.image.ScaleMode = canvas.ImageScaleFastest
+	// Las miniaturas se generan con resolución de sobra y Fyne las reduce; el
+	// filtro suave evita el aspecto escalonado al cambiar de tamaño.
+	cell.image.ScaleMode = canvas.ImageScaleSmooth
 	cell.image.Hide()
 
 	cell.number = canvas.NewText(fmt.Sprintf("%d", index+1), theme.Color(theme.ColorNameForeground))
@@ -228,6 +231,22 @@ func gridCellSize(thumbSize int) fyne.Size {
 	return fyne.NewSize(float32(thumbSize)+28, float32(thumbSize)*1.45+34)
 }
 
+// gridThumbnailRenderSize calcula la resolución real que se pide al backend.
+// El marco de la celda deja que una página vertical crezca hasta ~1,45 veces
+// el tamaño lógico y la pantalla puede estar al 150 % o 200 %, así que generar
+// solo "thumbSize" píxeles obligaba a Fyne a ampliar la imagen y se veía
+// borrosa. El factor 1,5 cubre ambos casos y deja margen para el filtro suave.
+func (g *gutterApp) gridThumbnailRenderSize() int {
+	scale := float64(1)
+	if g.window != nil && g.window.Canvas() != nil {
+		if s := g.window.Canvas().Scale(); s > 0 {
+			scale = float64(s)
+		}
+	}
+	render := int(math.Ceil(float64(g.gridThumbSize) * scale * 1.5))
+	return clampInt(render, g.gridThumbSize, 1024)
+}
+
 func (g *gutterApp) toggleThumbnailGrid() {
 	if g.gridOpen {
 		g.hideThumbnailGrid()
@@ -249,6 +268,7 @@ func (g *gutterApp) showThumbnailGrid() {
 	g.gridOpen = true
 	g.gridComic = g.comic
 	g.gridThumbSize = g.gridThumbSizePref()
+	g.gridThumbRender = g.gridThumbnailRenderSize()
 	g.gridSelection = clampInt(g.pageIndex, 0, len(g.comic.Pages)-1)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -346,6 +366,7 @@ func (g *gutterApp) hideThumbnailGrid() {
 	g.gridFailed = nil
 	g.gridLoading = nil
 	g.gridSelection = 0
+	g.gridThumbRender = 0
 	g.gridPending = 0
 	g.gridStatus = nil
 	g.gridComic = nil
@@ -497,7 +518,10 @@ func (g *gutterApp) loadGridRange(start, end int) {
 	ctx := g.gridCtx
 	comic := g.gridComic
 	seq := g.gridSeq.Load()
-	size := g.gridThumbSize
+	size := g.gridThumbRender
+	if size <= 0 {
+		size = g.gridThumbSize
+	}
 
 	go func() {
 		done := make(map[int]bool, len(names))
