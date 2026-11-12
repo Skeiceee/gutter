@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+
+# Evita que los rastreadores indexen archivos internos de Git.
+Disallow: /.git/
+
+Sitemap: https://skeiceee.github.io/gutter/sitemap.xml

@@ -3,10 +3,147 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gutter — Lector de cómics CBR/CBZ</title>
-  <meta name="description" content="Lector de cómics .cbr y .cbz para Windows. Rápido, local, de código abierto y sin extraer los archivos.">
+  <!-- SEO principal -->
+  <title>Gutter — Lector de cómics CBR y CBZ para Windows</title>
+  <meta name="description" content="Lector de cómics CBR y CBZ gratis para Windows 10/11. Abre RAR y ZIP sin extraerlos, con rejilla de miniaturas, reanudación y traducción.">
+  <meta name="keywords" content="lector de cómics, lector CBR, lector CBZ, abrir CBR en Windows, leer cómics en PC, cómics digitales, lector de comics gratis, RAR sólido, lector de manga, código abierto">
+  <meta name="author" content="Skeiceee">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1">
+  <meta name="application-name" content="Gutter">
   <meta name="theme-color" content="#121212">
+  <meta name="color-scheme" content="dark">
+  <meta name="format-detection" content="telephone=no">
+
+  <!-- Canonical e idioma -->
+  <link rel="canonical" href="https://skeiceee.github.io/gutter/">
+  <link rel="alternate" hreflang="es" href="https://skeiceee.github.io/gutter/">
+  <link rel="alternate" hreflang="x-default" href="https://skeiceee.github.io/gutter/">
+
+  <!-- Iconos y manifiesto -->
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+  <link rel="manifest" href="site.webmanifest">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Gutter">
+  <meta property="og:locale" content="es_ES">
+  <meta property="og:url" content="https://skeiceee.github.io/gutter/">
+  <meta property="og:title" content="Gutter — Lector de cómics CBR y CBZ para Windows">
+  <meta property="og:description" content="Abre tus cómics .cbr y .cbz al instante, sin extraerlos. Rápido, local, portable y de código abierto para Windows 10/11.">
+  <meta property="og:image" content="https://skeiceee.github.io/gutter/assets/social-card.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Gutter, lector de cómics CBR y CBZ para Windows 10/11">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Gutter — Lector de cómics CBR y CBZ para Windows">
+  <meta name="twitter:description" content="Lector de cómics .cbr y .cbz rápido, local y sin extraer archivos. Gratis, portable y de código abierto para Windows 10/11.">
+  <meta name="twitter:image" content="https://skeiceee.github.io/gutter/assets/social-card.png">
+  <meta name="twitter:image:alt" content="Gutter, lector de cómics CBR y CBZ para Windows">
+  <meta name="twitter:url" content="https://skeiceee.github.io/gutter/">
+
+  <!-- Datos estructurados: aplicación -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Gutter",
+    "alternateName": "Gutter Comic Reader",
+    "applicationCategory": "MultimediaApplication",
+    "applicationSubCategory": "Lector de cómics",
+    "operatingSystem": "Windows 10, Windows 11",
+    "softwareVersion": "1.2.0",
+    "fileSize": "29MB",
+    "inLanguage": "es",
+    "description": "Gutter es un lector de cómics CBR y CBZ para Windows. Indexa contenedores RAR y ZIP y descomprime solo la página solicitada, con rejilla de miniaturas, reanudación, OCR y traducción opcionales.",
+    "url": "https://skeiceee.github.io/gutter/",
+    "downloadUrl": "https://github.com/Skeiceee/gutter/releases/latest/download/Gutter.exe",
+    "installUrl": "https://github.com/Skeiceee/gutter/releases/latest",
+    "image": "https://skeiceee.github.io/gutter/assets/social-card.png",
+    "screenshot": "https://skeiceee.github.io/gutter/assets/social-card.png",
+    "license": "https://opensource.org/licenses/MIT",
+    "isAccessibleForFree": true,
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "EUR",
+      "availability": "https://schema.org/InStock"
+    },
+    "author": {
+      "@type": "Person",
+      "name": "Skeiceee",
+      "url": "https://github.com/Skeiceee"
+    },
+    "sameAs": [
+      "https://github.com/Skeiceee/gutter",
+      "https://github.com/Skeiceee/gutter/releases"
+    ],
+    "releaseNotes": "https://github.com/Skeiceee/gutter/blob/main/CHANGELOG.md",
+    "datePublished": "2026-11-10",
+    "featureList": [
+      "Lectura directa de CBR y CBZ sin extraer los archivos",
+      "Detección de RAR v4/v5 y ZIP por magic bytes",
+      "Rejilla de miniaturas con carga perezosa",
+      "Reanudación de página, zoom y sentido de lectura por cómic",
+      "Modo Occidental y Manga con corte de doble página",
+      "OCR y traducción de bocadillos bajo demanda",
+      "Caché persistente de índices, páginas y miniaturas",
+      "Tema oscuro, atajos de teclado y modo limpio a pantalla completa",
+      "Portable, sin instalación y de código abierto"
+    ]
+  }
+  </script>
+
+  <!-- Datos estructurados: sitio -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Gutter",
+    "url": "https://skeiceee.github.io/gutter/",
+    "inLanguage": "es",
+    "description": "Sitio oficial de Gutter, lector de cómics CBR y CBZ para Windows.",
+    "publisher": {
+      "@type": "Organization",
+      "name": "Gutter",
+      "url": "https://skeiceee.github.io/gutter/",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://skeiceee.github.io/gutter/assets/icon-512.png",
+        "width": 512,
+        "height": 512
+      },
+      "sameAs": ["https://github.com/Skeiceee/gutter"]
+    }
+  }
+  </script>
+
+  <!-- Datos estructurados: migas de pan -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Inicio",
+        "item": "https://skeiceee.github.io/gutter/"
+      },
+      {
+        "@type": "ListItem",
+        "position": 2,
+        "name": "Lector de cómics CBR y CBZ para Windows"
+      }
+    ]
+  }
+  </script>
+
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
