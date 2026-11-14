@@ -28,7 +28,7 @@ jobs:
       - name: Dependencias de Fyne/OpenGL
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libxkbcommon-dev
+          sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev
 
       - name: Vet
         run: go vet ./...
