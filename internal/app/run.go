@@ -33,6 +33,7 @@ func Run() {
 		if initialComic != "" {
 			ui.LoadComic(initialComic)
 		}
+		ui.maybeCheckUpdates()
 	})
 
 	ui.Run()

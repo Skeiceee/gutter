@@ -15,9 +15,9 @@ func TestPageBadgeFollowsNavigation(t *testing.T) {
 	defer app.Quit()
 
 	g := NewGutterApp(app)
-	g.comic = &backend.Comic{Path: "test.cbz", Pages: []string{"1.png", "2.png", "3.png"}}
-	g.cleanMode = true
-	g.pageIndex = 0
+	g.reader.comic = &backend.Comic{Path: "test.cbz", Pages: []string{"1.png", "2.png", "3.png"}}
+	g.reader.cleanMode = true
+	g.reader.pageIndex = 0
 
 	g.updateControls()
 	if !g.pageBadge.Visible() {
@@ -27,7 +27,7 @@ func TestPageBadgeFollowsNavigation(t *testing.T) {
 		t.Fatalf("indicador = %q, quiero %q", got, "Página 1 / 3")
 	}
 
-	g.pageIndex = 2
+	g.reader.pageIndex = 2
 	g.updateControls()
 	if got := g.pageBadge.label.Text; got != "Página 3 / 3" {
 		t.Fatalf("indicador tras navegar = %q, quiero %q", got, "Página 3 / 3")
@@ -41,11 +41,11 @@ func TestToggleCleanModeRestoresState(t *testing.T) {
 	defer app.Quit()
 
 	g := NewGutterApp(app)
-	g.comic = &backend.Comic{Path: "test.cbz", Pages: []string{"1.png", "2.png"}}
-	g.pageIndex = 0
+	g.reader.comic = &backend.Comic{Path: "test.cbz", Pages: []string{"1.png", "2.png"}}
+	g.reader.pageIndex = 0
 
 	g.toggleCleanMode()
-	if !g.cleanMode {
+	if !g.reader.cleanMode {
 		t.Fatal("cleanMode debería activarse al entrar en pantalla completa")
 	}
 	if !g.pageBadge.Visible() {
@@ -53,7 +53,7 @@ func TestToggleCleanModeRestoresState(t *testing.T) {
 	}
 
 	g.toggleCleanMode()
-	if g.cleanMode {
+	if g.reader.cleanMode {
 		t.Fatal("cleanMode debería desactivarse al salir de pantalla completa")
 	}
 	if g.pageBadge.Visible() {
@@ -62,7 +62,7 @@ func TestToggleCleanModeRestoresState(t *testing.T) {
 
 	// La siguiente pulsación debe volver a entrar, no quedarse en la salida.
 	g.toggleCleanMode()
-	if !g.cleanMode {
+	if !g.reader.cleanMode {
 		t.Fatal("F11 debe volver a entrar en pantalla completa")
 	}
 }

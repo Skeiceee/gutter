@@ -142,17 +142,17 @@ func (g *gutterApp) buildBottomBar() fyne.CanvasObject {
 // onReaderResize se invoca cuando cambia el área central (ventana, barras
 // ocultas, etc.). Mantiene el ajuste al ancho sincronizado con el viewport.
 func (g *gutterApp) onReaderResize(size fyne.Size) {
-	if size.Width <= 0 || size.Height <= 0 || size == g.viewport {
+	if !g.reader.setViewport(size) {
 		return
 	}
-	g.viewport = size
-	if g.zoomFit && g.pageImage.Image != nil {
+	if g.reader.zoomFit && g.pageImage.Image != nil {
 		g.applyPageZoom(false)
 	}
 }
+
 func (g *gutterApp) toggleCleanMode() {
-	if !g.cleanMode {
-		g.cleanMode = true
+	if !g.reader.cleanMode {
+		g.reader.cleanMode = true
 		g.bottomBar.Hide()
 		// Archivo/Ver/Traducción/Ayuda sobre la página.
 		if g.mainMenu != nil {
@@ -161,11 +161,11 @@ func (g *gutterApp) toggleCleanMode() {
 		g.cursorBlanker.Show()
 		g.window.SetFullScreen(true)
 	} else {
-		g.cleanMode = false
+		g.reader.cleanMode = false
 		g.bottomBar.Show()
-		if g.mainMenu != nil {
-			g.window.SetMainMenu(g.mainMenu)
-		}
+		// Se reconstruye para que las marcas del menú Ver reflejen el estado
+		// actual aunque se hayan cambiado las preferencias en modo limpio.
+		g.installMenu()
 		g.cursorBlanker.Hide()
 		g.window.SetFullScreen(false)
 	}
@@ -176,7 +176,7 @@ func (g *gutterApp) toggleCleanMode() {
 
 // showPage carga la página y la mitad actuales sin tocar el árbol de widgets.
 func (g *gutterApp) showPage() {
-	if g.comic == nil {
+	if g.reader.comic == nil {
 		return
 	}
 	// Invalida cualquier traducción en vuelo y retira la capa anterior.
@@ -188,18 +188,13 @@ func (g *gutterApp) showPage() {
 		g.scroll.Show()
 	}
 
-	if g.pageIndex < 0 {
-		g.pageIndex = 0
-	}
-	if g.pageIndex >= len(g.comic.Pages) {
-		g.pageIndex = len(g.comic.Pages) - 1
-	}
+	g.reader.clampIndex()
 
-	comic := g.comic
-	name := comic.Pages[g.pageIndex]
-	single := g.singlePage
-	manga := g.manga
-	half := g.half
+	comic := g.reader.comic
+	name := g.reader.pageName()
+	single := g.reader.singlePage
+	manga := g.reader.manga
+	half := g.reader.half
 	seq := g.pageSeq.Add(1)
 
 	// Cancela la página/prefetch anteriores antes de empezar. Así un cambio
@@ -214,7 +209,7 @@ func (g *gutterApp) showPage() {
 		g.readScanned.Store(int64(scanned))
 		g.readTotal.Store(int64(total))
 		fyne.Do(func() {
-			if seq == g.pageSeq.Load() && g.loading {
+			if seq == g.pageSeq.Load() && g.reader.loading {
 				g.updateControls()
 			}
 		})
@@ -225,7 +220,7 @@ func (g *gutterApp) showPage() {
 	prefetchCtx, prefetchCancel := context.WithCancel(context.Background())
 	g.prefetchCancel = prefetchCancel
 
-	g.loading = true
+	g.reader.loading = true
 	g.updateControls()
 
 	go func() {
@@ -252,14 +247,8 @@ func (g *gutterApp) showPage() {
 				return // llegó tarde: el usuario ya cambió de página
 			}
 
-			g.loading = false
 			g.pageFailed = false
-			g.spread = spread
-			g.half = half
-			g.shownComic = comic
-			g.shownPage = g.pageIndex
-			g.shownHalf = half
-			g.shownSpread = spread
+			g.reader.markShown(spread, half)
 			g.readScanned.Store(0)
 			g.readTotal.Store(0)
 			g.pageErrorState.Hide()
@@ -276,7 +265,7 @@ func (g *gutterApp) showPage() {
 			g.prefetchAdjacent(prefetchCtx, comic)
 		})
 	}()
-	g.window.SetTitle(fmt.Sprintf("%s — %s", appTitle, filepath.Base(g.comic.Path)))
+	g.window.SetTitle(fmt.Sprintf("%s — %s", appTitle, filepath.Base(g.reader.comic.Path)))
 
 	// updateControls centraliza el texto de progreso (incluye el marcador de
 	// error) y el estado de los botones.
@@ -293,21 +282,18 @@ func (g *gutterApp) reportLoadError(seq uint64, ctx context.Context, err error) 
 		if seq != g.pageSeq.Load() {
 			return
 		}
-		g.loading = false
+		g.reader.loading = false
 		g.readScanned.Store(0)
 		g.readTotal.Store(0)
 		g.pageFailed = true
-		g.spread = false
-		g.half = 0
+		g.reader.spread = false
+		g.reader.half = 0
 
-		total := 0
-		if g.comic != nil {
-			total = len(g.comic.Pages)
-		}
-		if g.pageIndex >= 0 && total > 0 {
+		total := g.reader.total()
+		if g.reader.pageIndex >= 0 && total > 0 {
 			g.pageErrorLabel.SetText(fmt.Sprintf(
 				"No se pudo mostrar la página %d de %d",
-				g.pageIndex+1, total,
+				g.reader.pageIndex+1, total,
 			))
 		} else {
 			g.pageErrorLabel.SetText("No se pudo mostrar la página")
@@ -330,7 +316,7 @@ func (g *gutterApp) reportOpenError(seq uint64, err error) {
 		if seq != g.pageSeq.Load() {
 			return
 		}
-		g.loading = false
+		g.reader.loading = false
 		g.clearPageError()
 		g.updateControls()
 		dialog.ShowError(fmt.Errorf("No se pudo abrir el cómic.\n\n%w", err), g.window)
@@ -345,7 +331,7 @@ func (g *gutterApp) clearPageError() {
 }
 
 func (g *gutterApp) retryPage() {
-	if g.comic == nil {
+	if g.reader.comic == nil {
 		return
 	}
 	g.showPage()
@@ -377,13 +363,13 @@ func (g *gutterApp) handleKey(event *fyne.KeyEvent) {
 
 	switch event.Name {
 	case fyne.KeyRight:
-		if g.manga {
+		if g.reader.manga {
 			g.previousPage()
 		} else {
 			g.nextPage()
 		}
 	case fyne.KeyLeft:
-		if g.manga {
+		if g.reader.manga {
 			g.nextPage()
 		} else {
 			g.previousPage()
@@ -391,8 +377,8 @@ func (g *gutterApp) handleKey(event *fyne.KeyEvent) {
 	case fyne.KeyHome:
 		g.goToPage(0)
 	case fyne.KeyEnd:
-		if g.comic != nil {
-			g.goToPage(len(g.comic.Pages) - 1)
+		if g.reader.comic != nil {
+			g.goToPage(len(g.reader.comic.Pages) - 1)
 		}
 	case fyne.KeyG:
 		g.openGotoPage()
@@ -417,11 +403,11 @@ func (g *gutterApp) handleKey(event *fyne.KeyEvent) {
 	case fyne.KeyT:
 		g.toggleTranslation()
 	case fyne.KeyEscape:
-		if g.loading {
+		if g.reader.loading {
 			g.cancelLoading()
 			return
 		}
-		if g.cleanMode {
+		if g.reader.cleanMode {
 			g.toggleCleanMode()
 		}
 	}
@@ -433,20 +419,31 @@ func (g *gutterApp) unfocus() {
 	g.window.Canvas().Unfocus()
 }
 
-// syncReadingControls refleja en la barra superior el estado restaurado de un
-// cómic. El flag evita que SetChecked/SetSelected disparen showPage.
-func (g *gutterApp) syncReadingControls() {
-	if g.singleCheck == nil || g.direction == nil {
+// setSinglePage cambia entre página completa y mitades, guarda el progreso y
+// refresca el menú para que la marca de verificación siga el estado real.
+func (g *gutterApp) setSinglePage(on bool) {
+	if g.reader.singlePage == on {
 		return
 	}
-	g.syncingControls = true
-	g.singleCheck.SetChecked(g.singlePage)
-	if g.manga {
-		g.direction.SetSelected(readingManga)
-	} else {
-		g.direction.SetSelected(readingWestern)
+	g.reader.singlePage = on
+	g.reader.half = 0
+	g.showPage()
+	g.saveCurrentProgress()
+	g.refreshMenu()
+	g.unfocus()
+}
+
+// setReadingDirection cambia el sentido de lectura (occidental o manga).
+func (g *gutterApp) setReadingDirection(manga bool) {
+	if g.reader.manga == manga {
+		return
 	}
-	g.syncingControls = false
+	g.reader.manga = manga
+	g.reader.half = 0
+	g.showPage()
+	g.saveCurrentProgress()
+	g.refreshMenu()
+	g.unfocus()
 }
 
 // handleDropped abre el primer .cbr/.cbz soltado sobre la ventana.

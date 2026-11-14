@@ -15,10 +15,10 @@ func TestUpdateControlsShowsRARProgress(t *testing.T) {
 
 	g := NewGutterApp(app)
 	comic := &backend.Comic{Path: "test.cbz", Pages: []string{"1.png", "2.png"}}
-	g.comic = comic
-	g.pageIndex = 0
+	g.reader.comic = comic
+	g.reader.pageIndex = 0
 
-	g.loading = true
+	g.reader.loading = true
 	g.readScanned.Store(3)
 	g.readTotal.Store(10)
 	g.updateControls()
@@ -33,7 +33,7 @@ func TestUpdateControlsShowsRARProgress(t *testing.T) {
 		t.Fatal("los botones deben estar deshabilitados durante la carga")
 	}
 
-	g.loading = false
+	g.reader.loading = false
 	g.updateControls()
 	if !strings.Contains(g.progress.Text, "Página 1 de 2") {
 		t.Fatalf("progreso normal = %q", g.progress.Text)
@@ -46,8 +46,8 @@ func TestUpdateControlsShowsPageError(t *testing.T) {
 
 	g := NewGutterApp(app)
 	comic := &backend.Comic{Path: "test.cbz", Pages: []string{"1.png", "2.png", "3.png"}}
-	g.comic = comic
-	g.pageIndex = 1
+	g.reader.comic = comic
+	g.reader.pageIndex = 1
 	g.pageFailed = true
 
 	g.updateControls()
@@ -66,22 +66,22 @@ func TestCancelLoadingRestoresShownPage(t *testing.T) {
 
 	g := NewGutterApp(app)
 	comic := &backend.Comic{Path: "test.cbz", Pages: []string{"1.png", "2.png", "3.png"}}
-	g.comic = comic
-	g.shownComic = comic
-	g.shownPage = 1
-	g.shownHalf = 0
-	g.shownSpread = false
-	g.pageIndex = 2
-	g.half = 0
-	g.loading = true
+	g.reader.comic = comic
+	g.reader.shownComic = comic
+	g.reader.shownPage = 1
+	g.reader.shownHalf = 0
+	g.reader.shownSpread = false
+	g.reader.pageIndex = 2
+	g.reader.half = 0
+	g.reader.loading = true
 
 	g.cancelLoading()
 
-	if g.loading {
+	if g.reader.loading {
 		t.Fatal("loading debería quedar en false")
 	}
-	if g.pageIndex != 1 {
-		t.Fatalf("pageIndex = %d, quiero 1", g.pageIndex)
+	if g.reader.pageIndex != 1 {
+		t.Fatalf("pageIndex = %d, quiero 1", g.reader.pageIndex)
 	}
 	if !strings.Contains(g.progress.Text, "Página 2 de 3") {
 		t.Fatalf("progreso restaurado = %q", g.progress.Text)

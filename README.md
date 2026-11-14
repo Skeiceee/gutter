@@ -34,6 +34,13 @@ caché LRU en RAM.
 - **Tamaño de ventana recordado** entre sesiones (siempre acotado al área útil
   del monitor actual).
 - **Menú Archivo/Ver/Traducción/Ayuda** y hoja de atajos con `F1` o `?`.
+- **Preferencias unificadas (`Ctrl+,`)**: un solo diálogo con pestañas para
+  Lectura, Caché, Traducción e Interfaz. Sustituye a los antiguos ajustes
+  repartidos entre «Opciones de lectura», «Configuración de OCR» y «Acerca de».
+- **Versión visible y búsqueda de actualizaciones**: «Ayuda > Buscar
+  actualizaciones…» consulta el último release en GitHub y abre la descarga en
+  el navegador. La comprobación al arrancar es opcional (desactivada por
+  defecto) y nunca bloquea la lectura.
 - **OCR + traducción bajo demanda** con `T`: reconoce el texto de los bocadillos
   y lo sustituye en la página por una capa traducida. En Windows usa el OCR
   integrado del sistema; en Linux/macOS usa Tesseract. Traductores: MyMemory
@@ -92,7 +99,7 @@ gutter/
 ├── CHANGELOG.md            # Novedades de cada versión publicada.
 └── internal/
     ├── app/                # Lógica principal de la aplicación (paquete app).
-    │   ├── app.go          # Struct gutterApp, NewGutterApp, Run(), arranque.
+    │   ├── app.go          # Struct gutterApp, NewGutterApp, arranque.
     │   ├── dialogs.go      # Diálogos, Abrir cómic, Cancelar carga.
     │   ├── grid.go         # Rejilla de miniaturas, carga perezosa y navegación.
     │   ├── help.go         # Menú Archivo/Ver/Traducción/Ayuda, F1, "Acerca de".
@@ -100,8 +107,11 @@ gutter/
     │   ├── library.go      # Progreso persistente, recientes, bienvenida.
     │   ├── navigation.go   # Zoom, scroll, paginación, prefetch, updateControls.
     │   ├── run.go          # Función Run() (arranque de la app).
-    │   ├── settings.go     # Preferencias de lectura, caché de disco y «Acerca de».
-    │   ├── translate_ui.go # Activación de OCR/traducción y diálogo de config.
+    │   ├── settings.go     # Claves de preferencias, caché y aviso de integridad.
+    │   ├── settings_ui.go  # Diálogo único de Preferencias con pestañas.
+    │   ├── state.go        # readerState: página, mitad, zoom y modo de lectura.
+    │   ├── translate_ui.go # Activación de OCR/traducción bajo demanda.
+    │   ├── update_ui.go    # Versión, «Acerca de» y búsqueda de actualizaciones.
     │   ├── ui.go           # showPage, errores de página, toggleCleanMode, handleKey.
     │   └── logos/          # Logotipos SVG (se embeben en el binario).
     │       └── *_test.go   # Pruebas unitarias del paquete app.
@@ -123,14 +133,20 @@ gutter/
     │   └── screen_mobile.go
     ├── theme/              # fyne.Theme con la paleta y tipografía de Gutter.
     │   └── theme.go
-    └── ui/                 # Layouts y Scroll sin sombras de Fyne.
-        ├── layouts.go      # PageLayout, RootLayout, BottomBarLayout, etc.
-        └── scroll.go       # ScrollSinSombras, NewScrollSinSombras.
+    ├── ui/                 # Layouts y Scroll sin sombras de Fyne.
+    │   ├── layouts.go      # PageLayout, RootLayout, BottomBarLayout, etc.
+    │   └── scroll.go       # ScrollSinSombras, NewScrollSinSombras.
+    ├── update/             # Consulta de la última release en GitHub.
+    │   └── update.go
+    └── version/            # Versión inyectada por ldflags y comparación semántica.
+        └── version.go
+
+.github/workflows/        # CI (vet, gofmt, pruebas -race) y release por tag.
 ```
 
 ### Arquitectura de paquetes
 
-- **`internal/app`**: Orquesta la ventana Fyne, el ciclo de vida de los cómics, la UI de lectura, el HUD, los menús y los diálogos. Es el paquete principal de la aplicación.
+- **`internal/app`**: Orquesta la ventana Fyne, el ciclo de vida de los cómics, la UI de lectura, el HUD, los menús y los diálogos. El estado de lectura vive en `readerState` (`state.go`), independiente de los widgets, para poder probar la navegación sin construir la interfaz.
 - **`internal/backend`**: Índice de archivos `.cbr`/`.cbz` (RAR v4/v5 y ZIP), extracción selectiva de páginas, decodificación multiformato, caché LRU, caché persistente opcional, verificación de integridad y precarga.
 - **`internal/ocr`**: Motor de OCR (Windows integrado o Tesseract), traducción (MyMemory/LibreTranslate/DeepL) y capa de bocadillos traducidos.
 - **`internal/theme`**: Paleta de colores (`#121212`, `#1E1E1E`, `#007ACC`) y tema oscuro fijo de Fyne.
@@ -138,6 +154,8 @@ gutter/
 - **`internal/cursor`**: `CleanCursor` para ocultar el puntero en modo lectura limpia.
 - **`internal/screen`**: `PrimaryWorkArea()` para obtener el área útil del monitor sin la barra de tareas.
 - **`internal/associate`**: Asociación de archivos `.cbr`/`.cbz` con Gutter en Windows (registro en `HKCU`).
+- **`internal/version`**: Versión inyectada con `-ldflags` y comparación semántica.
+- **`internal/update`**: Consulta del último release en la API de GitHub para el aviso de actualización.
 
 Los paquetes bajo `internal/` son privados al módulo `gutter` y no pueden importarse desde fuera.
 
@@ -207,7 +225,15 @@ $env:Path = "C:\ruta\a\mingw64\bin;$env:Path"
 .\build.ps1
 ```
 
-Genera `Gutter.exe` sin consola y con símbolos eliminados. Para depurar:
+Genera `Gutter.exe` sin consola y con símbolos eliminados. La versión mostrada
+en «Acerca de» se toma de `git describe --tags --always --dirty`; también se
+puede fijar a mano:
+
+```powershell
+.\build.ps1 -Version 1.3.0
+```
+
+Para depurar:
 
 ```powershell
 .\build.ps1 -Debug
@@ -243,7 +269,10 @@ CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o gutter .
 CGO_ENABLED=1 go test -v ./...
 ```
 
-Las pruebas cubren orden natural y alfabético de páginas, filtrado de basura
+Las pruebas cubren navegación y restauración de `readerState` (mitades, manga,
+zoom y cancelación), preferencias unificadas, versión y comparación semántica,
+la consulta de actualizaciones contra un servidor de prueba, orden natural y
+alfabético de páginas, filtrado de basura
 (`__MACOSX`, `.DS_Store`, archivos ocultos), conversión de imágenes
 indexadas/GIF a RGBA, el corte de mitades, la selección izquierda/derecha según
 el sentido de lectura, el porcentaje de progreso, la restauración de sesión, el
@@ -267,6 +296,17 @@ CGO_ENABLED=1 go test -run '^$' -bench . -benchmem ./...
 Incluye `BenchmarkPageCacheLRU`, `BenchmarkNaturalOrder`,
 `BenchmarkSpreadDetection`, `BenchmarkCropHalf` y `BenchmarkMakeThumbnail`.
 
+## Integración continua
+
+`.github/workflows/ci.yml` ejecuta `gofmt`, `go vet` y `go test -race ./...` en
+cada push a `main` y en cada pull request. `.github/workflows/release.yml`
+compila Windows, Linux y macOS al publicar un tag `v*` y adjunta los binarios al
+release. La versión se inyecta con:
+
+```bash
+go build -ldflags "-X gutter/internal/version.Version=1.3.0" .
+```
+
 ## Atajos de teclado
 
 | Tecla | Acción |
@@ -287,6 +327,7 @@ Incluye `BenchmarkPageCacheLRU`, `BenchmarkNaturalOrder`,
 | `T` | Reconocer y traducir la página actual (otra pulsación oculta la capa). |
 | `Ctrl+O` | Abrir un cómic. |
 | `Ctrl+R` | Abrir la lista de recientes. |
+| `Ctrl+,` | Abrir las preferencias (Lectura, Caché, Traducción, Interfaz). |
 | Rueda del ratón | Desplazar la página vertical u horizontalmente. |
 | Arrastrar y soltar | Abrir un `.cbr`/`.cbz` sobre la ventana. |
 

@@ -23,6 +23,9 @@ const (
 	prefIntegrityCheck    = "reader.integrity_check"
 	prefGridThumbSize     = "reader.grid_thumb_size"
 	prefDiskCacheLimitMB  = "cache.disk.limit_mb"
+	prefRememberWindow    = "ui.remember_window"
+	prefPageBadge         = "ui.page_badge"
+	prefCheckUpdates      = "update.check_on_start"
 	defaultDiskCacheLimit = 512 // MiB
 	defaultGridThumbSize  = 160
 )
@@ -128,80 +131,36 @@ func (g *gutterApp) diskLimitMB() int {
 	return g.prefs.IntWithFallback(prefDiskCacheLimitMB, defaultDiskCacheLimit)
 }
 
-// showReadingOptions presenta el orden de páginas y el filtro de basura. Al
-// aplicar, recarga el cómic actual conservando el nombre de la página visible.
+// showReadingOptions abre las preferencias directamente en la pestaña de
+// lectura. Se conserva como punto de entrada para el menú y las pruebas; la
+// implementación vive en settings_ui.go.
 func (g *gutterApp) showReadingOptions() {
-	sortSelect := widget.NewSelect(
-		[]string{"Natural (página 2 antes que 10)", "Alfabético estricto"},
-		nil,
-	)
-	if g.sortMode() == backend.SortLexicographic {
-		sortSelect.SetSelected("Alfabético estricto")
-	} else {
-		sortSelect.SetSelected("Natural (página 2 antes que 10)")
+	g.showSettings(settingsTabReading)
+}
+
+// rememberWindowSize indica si el tamaño de la ventana debe persistirse entre
+// sesiones.
+func (g *gutterApp) rememberWindowSize() bool {
+	if g.prefs == nil {
+		return true
 	}
+	return g.prefs.BoolWithFallback(prefRememberWindow, true)
+}
 
-	junkCheck := widget.NewCheck("Filtrar archivos de sistema (__MACOSX, .DS_Store, ocultos)", nil)
-	junkCheck.SetChecked(g.filterJunk())
+// showPageBadgePref controla el indicador «Página X / N» del modo limpio.
+func (g *gutterApp) showPageBadgePref() bool {
+	if g.prefs == nil {
+		return true
+	}
+	return g.prefs.BoolWithFallback(prefPageBadge, true)
+}
 
-	integrityCheck := widget.NewCheck("Comprobar integridad al abrir (muestra 3 páginas)", nil)
-	integrityCheck.SetChecked(g.integrityCheck())
-
-	thumbSelect := widget.NewSelect(gridThumbLabels, nil)
-	thumbSelect.SetSelected(gridThumbLabel(g.gridThumbSizePref()))
-
-	content := container.NewVBox(
-		widget.NewLabelWithStyle("Orden de las páginas", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		sortSelect,
-		widget.NewLabel("El orden natural interpreta los números: page2 < page10."),
-		widget.NewSeparator(),
-		junkCheck,
-		widget.NewLabel("Oculta metadatos y carpetas que macOS/WinRAR dejan dentro del archivo."),
-		widget.NewSeparator(),
-		integrityCheck,
-		widget.NewSeparator(),
-		widget.NewLabelWithStyle("Miniaturas de la rejilla", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		thumbSelect,
-		widget.NewLabel("Se aplica la próxima vez que abras la rejilla con M."),
-	)
-
-	d := dialog.NewCustomConfirm(
-		"Opciones de lectura",
-		"Aplicar",
-		"Cancelar",
-		content,
-		func(confirmed bool) {
-			if !confirmed {
-				return
-			}
-			oldSort := g.sortMode()
-			oldJunk := g.filterJunk()
-			oldIntegrity := g.integrityCheck()
-			oldThumbSize := g.gridThumbSizePref()
-
-			newSort := backend.SortNatural
-			if sortSelect.Selected == "Alfabético estricto" {
-				newSort = backend.SortLexicographic
-			}
-			newThumbSize := parseGridThumbSize(thumbSelect.Selected)
-			if g.prefs != nil {
-				g.prefs.SetString(prefSortMode, string(newSort))
-				g.prefs.SetBool(prefFilterJunk, junkCheck.Checked)
-				g.prefs.SetBool(prefIntegrityCheck, integrityCheck.Checked)
-				g.prefs.SetInt(prefGridThumbSize, newThumbSize)
-			}
-
-			if g.gridOpen && newThumbSize != oldThumbSize {
-				g.reopenThumbnailGrid()
-			}
-			if g.comic != nil && (newSort != oldSort || junkCheck.Checked != oldJunk || integrityCheck.Checked != oldIntegrity) {
-				g.reloadPreservingPage()
-			}
-		},
-		g.window,
-	)
-	d.Resize(fyne.NewSize(560, 520))
-	g.showDialog(d)
+// checkUpdatesOnStart indica si se debe buscar una versión nueva al arrancar.
+func (g *gutterApp) checkUpdatesOnStart() bool {
+	if g.prefs == nil {
+		return false
+	}
+	return g.prefs.BoolWithFallback(prefCheckUpdates, false)
 }
 
 // reopenThumbnailGrid conserva la página seleccionada al cambiar el tamaño de
@@ -221,13 +180,13 @@ func (g *gutterApp) reopenThumbnailGrid() {
 // reloadPreservingPage reabre el cómic con los nuevos ajustes. El orden puede
 // cambiar, así que se conserva el nombre de la página, no su índice.
 func (g *gutterApp) reloadPreservingPage() {
-	if g.comic == nil {
+	if g.reader.comic == nil {
 		return
 	}
-	comicPath := g.comic.Path
+	comicPath := g.reader.comic.Path
 	pageName := ""
-	if g.pageIndex >= 0 && g.pageIndex < len(g.comic.Pages) {
-		pageName = g.comic.Pages[g.pageIndex]
+	if g.reader.pageIndex >= 0 && g.reader.pageIndex < len(g.reader.comic.Pages) {
+		pageName = g.reader.comic.Pages[g.reader.pageIndex]
 	}
 	g.loadComic(comicPath, pageName)
 }
@@ -261,8 +220,8 @@ func (g *gutterApp) showIntegrityWarning(problems []backend.PageProblem) {
 }
 
 func (g *gutterApp) clearCaches() {
-	if g.comic != nil {
-		g.comic.ClearMemoryCaches()
+	if g.reader.comic != nil {
+		g.reader.comic.ClearMemoryCaches()
 	}
 	g.translationCache = make(map[string]*ocr.PageTranslation)
 	if g.diskCache != nil {
@@ -273,8 +232,8 @@ func (g *gutterApp) clearCaches() {
 // cacheSummary genera el texto del indicador de «Acerca de».
 func (g *gutterApp) cacheSummary() string {
 	var body strings.Builder
-	if g.comic != nil {
-		stats := g.comic.MemoryStats()
+	if g.reader.comic != nil {
+		stats := g.reader.comic.MemoryStats()
 		fmt.Fprintf(&body, "RAM (páginas): %d · %s de %s\n",
 			stats.PageCount, formatBytes(stats.PageBytes), formatBytes(stats.PageLimit))
 		fmt.Fprintf(&body, "RAM (miniaturas): %d · %s de %s\n",

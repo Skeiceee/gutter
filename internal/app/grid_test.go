@@ -30,7 +30,7 @@ func openTestGrid(t *testing.T, pages int) (*gutterApp, *backend.Comic) {
 		names[i] = "page.png"
 	}
 	comic := &backend.Comic{Path: "test.cbz", Pages: names}
-	g.comic = comic
+	g.reader.comic = comic
 
 	g.gridOpen = true
 	g.gridComic = comic
@@ -260,8 +260,8 @@ func TestGridLifecycle(t *testing.T) {
 	defer fyneApp.Quit()
 
 	g := NewGutterApp(fyneApp)
-	g.comic = &backend.Comic{Path: "test.cbz", Pages: []string{"1.png", "2.png", "3.png"}}
-	g.pageIndex = 1
+	g.reader.comic = &backend.Comic{Path: "test.cbz", Pages: []string{"1.png", "2.png", "3.png"}}
+	g.reader.pageIndex = 1
 
 	g.showThumbnailGrid()
 	if !g.gridOpen {
@@ -292,7 +292,7 @@ func TestGridLifecycle(t *testing.T) {
 	}
 
 	// Sin cómic no hay nada que mostrar.
-	g.comic = nil
+	g.reader.comic = nil
 	g.showThumbnailGrid()
 	if g.gridOpen {
 		t.Fatal("sin cómic la rejilla no debe abrirse")

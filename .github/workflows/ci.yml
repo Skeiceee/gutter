@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Pruebas y vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Dependencias de Fyne/OpenGL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libxkbcommon-dev
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Pruebas con detector de carreras
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race ./...
+
+      - name: Compilar
+        env:
+          CGO_ENABLED: "1"
+        run: go build -trimpath -ldflags "-s -w -X gutter/internal/version.Version=ci" -o gutter .
+
+  gofmt:
+    name: Formato
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Comprobar gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Estos archivos no están formateados con gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi

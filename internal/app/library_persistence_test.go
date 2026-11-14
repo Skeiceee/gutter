@@ -67,23 +67,23 @@ func TestRestoreProgress(t *testing.T) {
 
 	g.restoreProgress(comic)
 
-	if g.pageIndex != 4 {
-		t.Errorf("pageIndex = %d, quiero 4", g.pageIndex)
+	if g.reader.pageIndex != 4 {
+		t.Errorf("pageIndex = %d, quiero 4", g.reader.pageIndex)
 	}
-	if g.half != 1 {
-		t.Errorf("half = %d, quiero 1", g.half)
+	if g.reader.half != 1 {
+		t.Errorf("half = %d, quiero 1", g.reader.half)
 	}
-	if !g.manga {
+	if !g.reader.manga {
 		t.Error("se esperaba modo manga")
 	}
-	if g.singlePage {
+	if g.reader.singlePage {
 		t.Error("se esperaba modo de página completa")
 	}
-	if g.zoomFit {
+	if g.reader.zoomFit {
 		t.Error("se esperaba zoom manual")
 	}
-	if g.zoomScale != 0.8 {
-		t.Errorf("zoomScale = %v, quiero 0.8", g.zoomScale)
+	if g.reader.zoomScale != 0.8 {
+		t.Errorf("zoomScale = %v, quiero 0.8", g.reader.zoomScale)
 	}
 }
 
@@ -93,14 +93,16 @@ func TestSaveCurrentProgressPersistsSession(t *testing.T) {
 
 	comicPath := filepath.Join(t.TempDir(), "Berserk 001.cbz")
 	g := &gutterApp{
-		prefs:      app.Preferences(),
-		comic:      &backend.Comic{Path: comicPath, Pages: []string{"1", "2", "3", "4", "5"}},
-		pageIndex:  3,
-		half:       1,
-		manga:      true,
-		singlePage: true,
-		zoomFit:    false,
-		zoomScale:  0.65,
+		prefs: app.Preferences(),
+		reader: readerState{
+			comic:      &backend.Comic{Path: comicPath, Pages: []string{"1", "2", "3", "4", "5"}},
+			pageIndex:  3,
+			half:       1,
+			manga:      true,
+			singlePage: true,
+			zoomFit:    false,
+			zoomScale:  0.65,
+		},
 	}
 
 	g.saveCurrentProgress()
@@ -146,7 +148,7 @@ func TestRestoreProgressClampsPage(t *testing.T) {
 	comic := &backend.Comic{Path: g.recents[0].Path, Pages: []string{"1", "2", "3"}}
 
 	g.restoreProgress(comic)
-	if g.pageIndex != 2 {
-		t.Fatalf("pageIndex = %d, quiero 2", g.pageIndex)
+	if g.reader.pageIndex != 2 {
+		t.Fatalf("pageIndex = %d, quiero 2", g.reader.pageIndex)
 	}
 }

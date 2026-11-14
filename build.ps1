@@ -1,15 +1,19 @@
 # build.ps1 - Compila Gutter.exe para Windows.
 #
 # Uso:
-#   .\build.ps1            -> Gutter.exe (sin consola, optimizado)
-#   .\build.ps1 -Debug     -> Gutter-debug.exe (con consola y símbolos)
+#   .\build.ps1                       -> Gutter.exe (sin consola, optimizado)
+#   .\build.ps1 -Debug                -> Gutter-debug.exe (con consola y símbolos)
+#   .\build.ps1 -Version 1.3.0        -> inyecta la versión mostrada en «Acerca de»
+#
+# Si no se indica -Version, se usa `git describe --tags --always --dirty`.
 #
 # Requiere Go 1.26+, CGO_ENABLED=1 y un compilador de C (clang de LLVM-MinGW
 # recomendado, o gcc de MinGW-w64).
 
 param(
     [switch]$Debug,
-    [switch]$ShowCompiler
+    [switch]$ShowCompiler,
+    [string]$Version = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -75,13 +79,30 @@ if ($ShowCompiler) {
     return
 }
 
+# Versión para «Acerca de» y para comparar con las publicaciones de GitHub.
+if (-not $Version) {
+    try {
+        $described = & git describe --tags --always --dirty 2>$null
+        if ($LASTEXITCODE -eq 0 -and $described) {
+            $Version = $described.Trim()
+        }
+    } catch {
+        # Sin repositorio git se compila como "dev".
+    }
+    if (-not $Version) {
+        $Version = "dev"
+    }
+}
+$versionFlag = "-X gutter/internal/version.Version=$Version"
+Write-Host "Versión: $Version" -ForegroundColor DarkGray
+
 if ($Debug) {
     Write-Host "Compilando Gutter-debug.exe..." -ForegroundColor Cyan
-    go build -trimpath -o Gutter-debug.exe .
+    go build -trimpath -ldflags="$versionFlag" -o Gutter-debug.exe .
     $output = "Gutter-debug.exe"
 } else {
     Write-Host "Compilando Gutter.exe..." -ForegroundColor Cyan
-    go build -trimpath -ldflags="-s -w -H windowsgui" -o Gutter.exe .
+    go build -trimpath -ldflags="-s -w -H windowsgui $versionFlag" -o Gutter.exe .
     $output = "Gutter.exe"
 }
 

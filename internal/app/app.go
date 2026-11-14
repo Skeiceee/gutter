@@ -23,13 +23,8 @@ type gutterApp struct {
 	window fyne.Window
 	prefs  fyne.Preferences
 
-	comic      *backend.Comic
-	pageIndex  int
-	half       int  // mitad en orden de lectura: 0 = primera, 1 = segunda
-	spread     bool // la página actual es horizontal
-	singlePage bool
-	manga      bool
-	loading    bool
+	// Estado puro de lectura (cómic, página, zoom y modo). Ver state.go.
+	reader readerState
 
 	pageSeq atomic.Uint64
 	openSeq atomic.Uint64
@@ -38,13 +33,6 @@ type gutterApp struct {
 	// para que el prefetch no herede el callback de progreso de la página.
 	pageCancel     context.CancelFunc
 	prefetchCancel context.CancelFunc
-
-	// Última página realmente dibujada. Permite restaurar la vista si el
-	// usuario cancela una carga larga (por ejemplo, un salto en RAR sólido).
-	shownComic  *backend.Comic
-	shownPage   int
-	shownHalf   int
-	shownSpread bool
 
 	// Progreso del recorrido secuencial de un RAR sólido.
 	readScanned atomic.Int64
@@ -65,12 +53,10 @@ type gutterApp struct {
 	prevButton       *widget.Button
 	nextButton       *widget.Button
 
-	// Controles que reflejan el estado de lectura guardado por cómic.
-	singleCheck     *widget.Check
-	direction       *widget.Select
-	syncingControls bool
-
 	recents []recentComic
+
+	// Evita lanzar dos comprobaciones de actualizaciones a la vez.
+	updating bool
 
 	// Caché persistente compartida por todos los cómics. Se crea al arrancar y
 	// se pasa al backend en cada apertura.
@@ -143,10 +129,8 @@ type gutterApp struct {
 
 func NewGutterApp(a fyne.App) *gutterApp {
 	g := &gutterApp{
-		singlePage: true,
-		zoomFit:    true,
-		zoomScale:  1,
-		prefs:      a.Preferences(),
+		reader: newReaderState(),
+		prefs:  a.Preferences(),
 	}
 	g.recents = loadRecents(g.prefs)
 	g.diskCache = newAppDiskCache(a, g.prefs)
@@ -166,27 +150,6 @@ func NewGutterApp(a fyne.App) *gutterApp {
 	g.window.SetIcon(icon)
 
 	g.logo = loadBrandResource(logoCandidates...)
-
-	// Controles de lectura que ya no viven en la barra superior (ahora solo
-	// lleva el logo y el botón de pantalla completa). Se mantienen como
-	// estado para que el menú Ver y la lógica de lectura sigan funcionando.
-	g.singleCheck = widget.NewCheck("Modo una página", nil)
-	g.singleCheck.SetChecked(g.singlePage)
-	g.singleCheck.OnChanged = func(on bool) {
-		g.singlePage = on
-		g.half = 0
-		g.showPage()
-		g.unfocus()
-	}
-
-	g.direction = widget.NewSelect([]string{readingWestern, readingManga}, nil)
-	g.direction.SetSelected(readingWestern)
-	g.direction.OnChanged = func(selected string) {
-		g.manga = selected == readingManga
-		g.half = 0
-		g.showPage()
-		g.unfocus()
-	}
 
 	// Lienzo de página reutilizable. Nunca se sustituye el objeto. El tamaño lo
 	// impone pageLayout; FillStretch permite que el zoom sea independiente del
@@ -217,7 +180,7 @@ func NewGutterApp(a fyne.App) *gutterApp {
 
 	g.emptyState = container.NewStack()
 	g.refreshWelcome()
-	g.cursorBlanker = cursor.NewCleanCursor(func() bool { return g.cleanMode })
+	g.cursorBlanker = cursor.NewCleanCursor(func() bool { return g.reader.cleanMode })
 	g.cursorBlanker.Hide()
 
 	g.pageBadge = newFloatingPill()
@@ -340,11 +303,13 @@ func (g *gutterApp) FitWindowToPrimaryScreen() {
 	// monitor actual para que la barra de título no quede fuera de pantalla.
 	width := startupWindowWidth
 	height := startupWindowHeight
-	if saved := g.prefs.Float(prefWindowWidth); saved >= float64(minimumWindowWidth) {
-		width = float32(saved)
-	}
-	if saved := g.prefs.Float(prefWindowHeight); saved >= float64(minimumWindowHeight) {
-		height = float32(saved)
+	if g.rememberWindowSize() {
+		if saved := g.prefs.Float(prefWindowWidth); saved >= float64(minimumWindowWidth) {
+			width = float32(saved)
+		}
+		if saved := g.prefs.Float(prefWindowHeight); saved >= float64(minimumWindowHeight) {
+			height = float32(saved)
+		}
 	}
 
 	width = fyne.Min(width, maxWidth)

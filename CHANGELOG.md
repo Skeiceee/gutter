@@ -4,6 +4,33 @@ Todas las versiones publicadas de Gutter, con los cambios más visibles para
 quien usa el lector. El ejecutable de cada versión está en
 [Releases](https://github.com/Skeiceee/gutter/releases).
 
+## Sin publicar
+
+### Preferencias unificadas
+
+- **Un solo diálogo con pestañas (`Ctrl+,`)**: Lectura, Caché, Traducción e
+  Interfaz. Reúne lo que antes estaba repartido entre «Opciones de lectura»,
+  «Configuración de OCR» y el bloque de caché de «Acerca de».
+- Las opciones de paginación (una página, occidental/manga) se aplican al
+  momento y el menú Ver muestra marcas de verificación sincronizadas.
+- Nuevas preferencias de interfaz: recordar tamaño de ventana, mostrar el
+  indicador de página en modo limpio y buscar actualizaciones al arrancar.
+
+### Versión y actualizaciones
+
+- La versión se inyecta al compilar con `-X` y aparece en «Acerca de» junto al
+  commit y la fecha.
+- «Ayuda > Buscar actualizaciones…» consulta el último release de GitHub y abre
+  la descarga; la comprobación automática es opcional y falla en silencio.
+
+### Calidad
+
+- **`readerState`**: el estado de lectura (cómic, página, mitad, zoom, modo) se
+  separa de `gutterApp` y se cubre con pruebas unitarias de navegación.
+- **CI**: `gofmt`, `go vet` y `go test -race ./...` en cada push y pull request,
+  más un workflow de release por tag que compila Windows, Linux y macOS.
+- `build.ps1` acepta `-Version` y toma la versión de `git describe` por defecto.
+
 ## v1.2.0 — 2026-11-10
 
 ### Rejilla de páginas
