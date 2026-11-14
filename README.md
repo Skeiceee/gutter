@@ -103,19 +103,25 @@ gutter/
     │   ├── settings.go     # Preferencias de lectura, caché de disco y «Acerca de».
     │   ├── translate_ui.go # Activación de OCR/traducción y diálogo de config.
     │   ├── ui.go           # showPage, errores de página, toggleCleanMode, handleKey.
-    │   └── logos/          # Logotipos SVG (se embeben en el binario).
-    │       └── *_test.go   # Pruebas unitarias del paquete app.
+    │   ├── testapi.go      # Puente exportado para las pruebas externas.
+    │   ├── logos/          # Logotipos SVG (se embeben en el binario).
+    │   └── tests/          # Pruebas unitarias del paquete app.
+    │       └── *_test.go
     ├── backend/            # Índice RAR/ZIP, extracción, decodificación, caché.
     │   ├── backend.go      # Motor de lectura, prefetch, miniaturas, estadísticas.
     │   ├── disk_cache.go   # Caché persistente de índices, páginas y miniaturas.
     │   ├── integrity.go    # Verificación rápida con presupuesto de tiempo.
     │   ├── options.go      # OpenOptions, SortMode y PageProblem.
-    │   └── *_test.go
+    │   ├── testapi.go      # Puente exportado para las pruebas externas.
+    │   └── tests/          # Pruebas unitarias del paquete backend.
+    │       └── *_test.go
     ├── ocr/                # OCR (Windows/Tesseract) y traducción.
     │   ├── ocr*.go
     │   ├── translate.go
     │   ├── overlay.go
-    │   └── *_test.go
+    │   ├── testapi.go      # Puente exportado para las pruebas externas.
+    │   └── tests/          # Pruebas unitarias del paquete ocr.
+    │       └── *_test.go
     ├── cursor/             # Ocultación del cursor en modo limpio.
     │   └── cursor.go
     ├── screen/             # Área útil del monitor principal (desktop/mobile).
@@ -242,6 +248,11 @@ CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o gutter .
 ```bash
 CGO_ENABLED=1 go test -v ./...
 ```
+
+Los tests de cada paquete viven en su propia carpeta `tests/`
+(`internal/app/tests`, `internal/backend/tests`, `internal/ocr/tests`) como
+paquetes externos. El archivo `testapi.go` de cada paquete expone únicamente los
+identificadores internos que esas pruebas necesitan.
 
 Las pruebas cubren orden natural y alfabético de páginas, filtrado de basura
 (`__MACOSX`, `.DS_Store`, archivos ocultos), conversión de imágenes

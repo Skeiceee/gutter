@@ -1,4 +1,4 @@
-package app
+package tests
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/widget"
+
 	"gutter/internal/ui"
 )
 
@@ -28,8 +29,8 @@ func contarSombras(objetos []fyne.CanvasObject) int {
 // degradados de borde que Fyne añade por defecto (el inferior se veía como una
 // franja despegada de la barra de navegación).
 func TestScrollSinSombras(t *testing.T) {
-	app := test.NewApp()
-	defer app.Quit()
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
 
 	contenido := container.NewVBox(widget.NewLabel("página"))
 
@@ -52,8 +53,8 @@ func TestScrollSinSombras(t *testing.T) {
 // TestScrollSinSombrasDesplaza verifica que el widget derivado conserva el
 // desplazamiento: el contenido se mueve y el Offset cambia.
 func TestScrollSinSombrasDesplaza(t *testing.T) {
-	app := test.NewApp()
-	defer app.Quit()
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
 
 	contenido := container.NewVBox(widget.NewLabel("página"))
 	for i := 0; i < 40; i++ {

@@ -1,6 +1,10 @@
-package app
+package tests
 
-import "testing"
+import (
+	"testing"
+
+	"gutter/internal/app"
+)
 
 func TestIsRightHalf(t *testing.T) {
 	cases := []struct {
@@ -15,8 +19,8 @@ func TestIsRightHalf(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		if got := isRightHalf(tc.half, tc.manga); got != tc.want {
-			t.Errorf("isRightHalf(%d, manga=%v) = %v, quiero %v", tc.half, tc.manga, got, tc.want)
+		if got := app.IsRightHalf(tc.half, tc.manga); got != tc.want {
+			t.Errorf("IsRightHalf(%d, manga=%v) = %v, quiero %v", tc.half, tc.manga, got, tc.want)
 		}
 	}
 }

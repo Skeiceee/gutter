@@ -1,4 +1,4 @@
-package backend
+package tests
 
 import (
 	"archive/zip"
@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"gutter/internal/backend"
 )
 
 func TestNaturalLess(t *testing.T) {
@@ -20,7 +22,7 @@ func TestNaturalLess(t *testing.T) {
 	}
 	want := []string{"Page1.jpg", "page02.jpg", "page2.jpg", "page10.jpg"}
 
-	sort.SliceStable(pages, func(i, j int) bool { return naturalLess(pages[i], pages[j]) })
+	sort.SliceStable(pages, func(i, j int) bool { return backend.NaturalLess(pages[i], pages[j]) })
 	for i := range want {
 		if pages[i] != want[i] {
 			t.Fatalf("orden[%d] = %q, quiero %q (orden completo: %v)", i, pages[i], want[i], pages)
@@ -40,8 +42,8 @@ func TestNaturalCompareExamples(t *testing.T) {
 		{"a.jpg", "b.jpg", -1},
 	}
 	for _, tc := range cases {
-		if got := naturalCompare(tc.a, tc.b); got != tc.want {
-			t.Errorf("naturalCompare(%q, %q) = %d, quiero %d", tc.a, tc.b, got, tc.want)
+		if got := backend.NaturalCompare(tc.a, tc.b); got != tc.want {
+			t.Errorf("NaturalCompare(%q, %q) = %d, quiero %d", tc.a, tc.b, got, tc.want)
 		}
 	}
 }
@@ -59,7 +61,7 @@ func TestCropHalfCompactAndCorrect(t *testing.T) {
 		}
 	}
 
-	left := CropHalf(img, false)
+	left := backend.CropHalf(img, false)
 	rb, ok := left.(*image.RGBA)
 	if !ok {
 		t.Fatalf("la mitad izquierda debe ser *image.RGBA, es %T", left)
@@ -74,7 +76,7 @@ func TestCropHalfCompactAndCorrect(t *testing.T) {
 		t.Errorf("píxel izquierdo inesperado: %v", left.At(0, 0))
 	}
 
-	right := CropHalf(img, true)
+	right := backend.CropHalf(img, true)
 	if got := right.Bounds(); got != image.Rect(0, 0, 5, 4) {
 		t.Errorf("bounds derecha = %v", got)
 	}
@@ -92,9 +94,9 @@ func TestToRGBAFromPaletted(t *testing.T) {
 	src.SetColorIndex(0, 0, 1)
 	src.SetColorIndex(1, 0, 0)
 
-	rgba := toRGBA(src)
+	rgba := backend.ToRGBA(src)
 	if _, ok := image.Image(rgba).(*image.RGBA); !ok {
-		t.Fatalf("toRGBA devolvió %T", rgba)
+		t.Fatalf("ToRGBA devolvió %T", rgba)
 	}
 	if r, _, _, _ := rgba.At(0, 0).RGBA(); r != 0xFFFF {
 		t.Errorf("conversión de paleta incorrecta: %v", rgba.At(0, 0))
@@ -104,23 +106,23 @@ func TestToRGBAFromPaletted(t *testing.T) {
 func TestIsComicImageAndHidden(t *testing.T) {
 	valid := []string{"001.JPG", "page.webp", "cover.avif", "scan.tiff"}
 	for _, name := range valid {
-		if !isComicImage(name) {
+		if !backend.IsComicImage(name) {
 			t.Errorf("%q debería ser una imagen válida", name)
 		}
 	}
 	invalid := []string{"info.txt", "ComicInfo.xml", "Thumbs.db", "page.psd"}
 	for _, name := range invalid {
-		if isComicImage(name) {
+		if backend.IsComicImage(name) {
 			t.Errorf("%q no debería aceptarse", name)
 		}
 	}
-	if !isHiddenComicPath("__MACOSX/._page.jpg") {
+	if !backend.IsHiddenComicPath("__MACOSX/._page.jpg") {
 		t.Error("__MACOSX debe ignorarse")
 	}
-	if !isHiddenComicPath(".hidden/page.jpg") {
+	if !backend.IsHiddenComicPath(".hidden/page.jpg") {
 		t.Error("las carpetas ocultas deben ignorarse")
 	}
-	if isHiddenComicPath("Chapter 01/page.jpg") {
+	if backend.IsHiddenComicPath("Chapter 01/page.jpg") {
 		t.Error("una ruta normal no es oculta")
 	}
 }
@@ -160,7 +162,7 @@ func TestOpenZIPComic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	comic, err := OpenComic(comicPath)
+	comic, err := backend.OpenComic(comicPath)
 	if err != nil {
 		t.Fatal(err)
 	}

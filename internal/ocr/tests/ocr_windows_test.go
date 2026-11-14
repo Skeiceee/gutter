@@ -1,12 +1,14 @@
 //go:build windows
 
-package ocr
+package tests
 
 import (
 	"context"
 	"os"
 	"strings"
 	"testing"
+
+	"gutter/internal/ocr"
 )
 
 // TestWindowsOCR es una prueba manual: solo se ejecuta si se indica una imagen
@@ -18,9 +20,9 @@ func TestWindowsOCR(t *testing.T) {
 		t.Skip("define GUTTER_TEST_OCR_IMAGE para probar el OCR de Windows")
 	}
 
-	lines, err := platformOCR(context.Background(), imagePath, languageOption{Windows: "en-US"})
+	lines, err := ocr.PlatformOCR(context.Background(), imagePath, ocr.LanguageOption{Windows: "en-US"})
 	if err != nil {
-		t.Fatalf("platformOCR: %v", err)
+		t.Fatalf("PlatformOCR: %v", err)
 	}
 	if len(lines) == 0 {
 		t.Fatal("el OCR no devolvió líneas")

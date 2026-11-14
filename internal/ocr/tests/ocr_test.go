@@ -1,20 +1,22 @@
-package ocr
+package tests
 
 import (
 	"image"
 	"strings"
 	"testing"
+
+	"gutter/internal/ocr"
 )
 
 func TestGroupOCRLinesMergesMultilineBubble(t *testing.T) {
 	bounds := image.Rect(0, 0, 800, 1000)
-	lines := []ocrLine{
+	lines := []ocr.OCRLine{
 		{Text: "HELLO,", Rect: image.Rect(100, 100, 300, 130)},
 		{Text: "I AM A BUBBLE.", Rect: image.Rect(120, 140, 320, 170)},
 		{Text: "A SEPARATE BUBBLE.", Rect: image.Rect(500, 500, 700, 530)},
 	}
 
-	bubbles := groupOCRLines(lines, bounds)
+	bubbles := ocr.GroupOCRLines(lines, bounds)
 	if len(bubbles) != 2 {
 		t.Fatalf("se esperaban 2 bocadillos, hay %d: %+v", len(bubbles), bubbles)
 	}
@@ -28,19 +30,19 @@ func TestGroupOCRLinesMergesMultilineBubble(t *testing.T) {
 
 func TestGroupOCRLinesKeepsSideBySideBubblesSeparate(t *testing.T) {
 	bounds := image.Rect(0, 0, 800, 600)
-	lines := []ocrLine{
+	lines := []ocr.OCRLine{
 		{Text: "LEFT BUBBLE", Rect: image.Rect(50, 100, 250, 130)},
 		{Text: "RIGHT BUBBLE", Rect: image.Rect(400, 100, 620, 130)},
 	}
 
-	bubbles := groupOCRLines(lines, bounds)
+	bubbles := ocr.GroupOCRLines(lines, bounds)
 	if len(bubbles) != 2 {
 		t.Fatalf("los bocadillos laterales no deben unirse: %+v", bubbles)
 	}
 }
 
 func TestGroupOCRLinesFiltersEmptyText(t *testing.T) {
-	bubbles := groupOCRLines([]ocrLine{
+	bubbles := ocr.GroupOCRLines([]ocr.OCRLine{
 		{Text: " ", Rect: image.Rect(10, 10, 30, 30)},
 		{Text: "", Rect: image.Rect(40, 40, 60, 60)},
 	}, image.Rect(0, 0, 100, 100))
@@ -56,7 +58,7 @@ func TestParseTesseractTSV(t *testing.T) {
 		"5\t1\t1\t1\t2\t1\t12\t45\t30\t18\t88\tSECOND\n" +
 		"5\t1\t1\t1\t3\t1\t12\t75\t30\t18\t10\tLOWCONF\n"
 
-	lines := parseTesseractTSV(tsv)
+	lines := ocr.ParseTesseractTSV(tsv)
 	if len(lines) != 2 {
 		t.Fatalf("se esperaban 2 líneas, hay %d: %+v", len(lines), lines)
 	}
@@ -72,18 +74,18 @@ func TestParseTesseractTSV(t *testing.T) {
 }
 
 func TestRectFromFloats(t *testing.T) {
-	got := rectFromFloats(10.4, 20.6, 30.2, 40.8)
+	got := ocr.RectFromFloats(10.4, 20.6, 30.2, 40.8)
 	want := image.Rect(10, 21, 41, 61)
 	if got != want {
-		t.Fatalf("rectFromFloats = %v, quiero %v", got, want)
+		t.Fatalf("RectFromFloats = %v, quiero %v", got, want)
 	}
-	if !rectFromFloats(0, 0, 0, 0).Empty() {
+	if !ocr.RectFromFloats(0, 0, 0, 0).Empty() {
 		t.Fatal("una caja vacía debe quedar vacía")
 	}
 }
 
 func TestWithEnvReplacesWithoutDuplicates(t *testing.T) {
-	env := withEnv(
+	env := ocr.WithEnv(
 		[]string{"PATH=C:\\bin", "GUTTER_OCR_LANG=old"},
 		"GUTTER_OCR_LANG", "en-US",
 		"GUTTER_OCR_IMAGE", `C:\temp\page.png`,

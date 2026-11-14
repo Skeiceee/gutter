@@ -1,10 +1,12 @@
-package backend
+package tests
 
 import (
 	"fmt"
 	"image"
 	"sort"
 	"testing"
+
+	"gutter/internal/backend"
 )
 
 func BenchmarkPageCacheLRU(b *testing.B) {
@@ -17,12 +19,12 @@ func BenchmarkPageCacheLRU(b *testing.B) {
 	}
 
 	// Presupuesto pequeño a propósito para medir también la evicción.
-	cache := newPageCache(8 << 20)
+	cache := backend.NewPageCache(8 << 20)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		index := i % count
-		cache.put(names[index], images[index])
-		_, _ = cache.get(names[(index*7)%count])
+		cache.Put(names[index], images[index])
+		_, _ = cache.Get(names[(index*7)%count])
 	}
 }
 
@@ -37,7 +39,7 @@ func BenchmarkNaturalOrder(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		pages := append([]string(nil), names...)
 		sort.SliceStable(pages, func(i, j int) bool {
-			return naturalLess(pages[i], pages[j])
+			return backend.NaturalLess(pages[i], pages[j])
 		})
 	}
 }
@@ -48,9 +50,9 @@ func BenchmarkSpreadDetection(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if i%2 == 0 {
-			_ = isLandscape(portrait)
+			_ = backend.IsLandscape(portrait)
 		} else {
-			_ = isLandscape(landscape)
+			_ = backend.IsLandscape(landscape)
 		}
 	}
 }
@@ -59,7 +61,7 @@ func BenchmarkCropHalf(b *testing.B) {
 	page := image.NewRGBA(image.Rect(0, 0, 1600, 2400))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = CropHalf(page, i%2 == 0)
+		_ = backend.CropHalf(page, i%2 == 0)
 	}
 }
 
@@ -67,6 +69,6 @@ func BenchmarkMakeThumbnail(b *testing.B) {
 	page := image.NewRGBA(image.Rect(0, 0, 1600, 2400))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = makeThumbnail(page, 160)
+		_ = backend.MakeThumbnail(page, 160)
 	}
 }

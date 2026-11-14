@@ -1,10 +1,12 @@
-package backend
+package tests
 
 import (
 	"context"
 	"errors"
 	"image"
 	"testing"
+
+	"gutter/internal/backend"
 )
 
 // ThumbnailsContext debe entregar todas las miniaturas pedidas de un ZIP y
@@ -15,10 +17,10 @@ func TestThumbnailsContextZIPAndDiskCache(t *testing.T) {
 		"page2.png": testPNG(t, 60, 40, nil),
 		"page3.png": testPNG(t, 30, 30, nil),
 	})
-	cache := NewDiskCache(t.TempDir(), 8<<20)
+	cache := backend.NewDiskCache(t.TempDir(), 8<<20)
 	defer cache.Clear()
 
-	comic, err := OpenComicWithOptions(comicPath, OpenOptions{DiskCache: cache})
+	comic, err := backend.OpenComicWithOptions(comicPath, backend.OpenOptions{DiskCache: cache})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +52,7 @@ func TestThumbnailsContextZIPAndDiskCache(t *testing.T) {
 		}
 	}
 
-	identity := comic.diskIdentity
+	identity := comic.DiskIdentityForTest()
 	firstPage := comic.Pages[0]
 	if err := comic.Close(); err != nil {
 		t.Fatal(err)
@@ -73,7 +75,7 @@ func TestThumbnailsContextZIPAndDiskCache(t *testing.T) {
 
 	// Una segunda apertura debe servirse de la caché persistente sin duplicar
 	// entradas en el presupuesto.
-	again, err := OpenComicWithOptions(comicPath, OpenOptions{DiskCache: cache})
+	again, err := backend.OpenComicWithOptions(comicPath, backend.OpenOptions{DiskCache: cache})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +101,7 @@ func TestThumbnailsContextReportsMissingPage(t *testing.T) {
 	comicPath := writeTestZIP(t, map[string][]byte{
 		"page1.png": testPNG(t, 20, 20, nil),
 	})
-	comic, err := OpenComicWithOptions(comicPath, OpenOptions{})
+	comic, err := backend.OpenComicWithOptions(comicPath, backend.OpenOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +128,7 @@ func TestThumbnailsContextHonorsCancellation(t *testing.T) {
 	comicPath := writeTestZIP(t, map[string][]byte{
 		"page1.png": testPNG(t, 20, 20, nil),
 	})
-	comic, err := OpenComicWithOptions(comicPath, OpenOptions{})
+	comic, err := backend.OpenComicWithOptions(comicPath, backend.OpenOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,13 +154,13 @@ func TestThumbDiskBudget(t *testing.T) {
 		pageLimit int64
 		want      int64
 	}{
-		{8 << 20, minThumbDiskLimit},
+		{8 << 20, backend.MinThumbDiskLimit},
 		{256 << 20, 64 << 20},
 		{512 << 20, 128 << 20},
-		{4 << 30, maxThumbDiskLimit},
+		{4 << 30, backend.MaxThumbDiskLimit},
 	}
 	for _, tc := range cases {
-		cache := NewDiskCache(t.TempDir(), tc.pageLimit)
+		cache := backend.NewDiskCache(t.TempDir(), tc.pageLimit)
 		if got := cache.Stats().ThumbLimit; got != tc.want {
 			t.Errorf("límite de páginas %d: miniaturas %d, quiero %d", tc.pageLimit, got, tc.want)
 		}
@@ -169,7 +171,7 @@ func TestThumbDiskBudget(t *testing.T) {
 // Las miniaturas y las páginas comparten formato pero no directorio ni
 // contadores: guardar una no debe alterar el presupuesto de la otra.
 func TestDiskCacheThumbnailRoundTripIsIsolated(t *testing.T) {
-	cache := NewDiskCache(t.TempDir(), 8<<20)
+	cache := backend.NewDiskCache(t.TempDir(), 8<<20)
 	defer cache.Clear()
 
 	img := image.NewRGBA(image.Rect(0, 0, 8, 6))

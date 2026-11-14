@@ -1,10 +1,12 @@
-package app
+package tests
 
 import (
 	"testing"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
+
+	"gutter/internal/app"
 )
 
 func TestDigitKey(t *testing.T) {
@@ -22,16 +24,16 @@ func TestDigitKey(t *testing.T) {
 	}
 
 	for key, want := range cases {
-		if got, ok := digitKey(key); !ok || got != want {
-			t.Errorf("digitKey(%q) = %q, %v; quiero %q, true", key, got, ok, want)
+		if got, ok := app.DigitKey(key); !ok || got != want {
+			t.Errorf("DigitKey(%q) = %q, %v; quiero %q, true", key, got, ok, want)
 		}
 	}
 
 	// Un teclado numérico envía KeyEnter/KeyKP igual, pero letras y flechas
 	// nunca deben interpretarse como dígitos.
 	for _, key := range []fyne.KeyName{fyne.KeyA, fyne.KeyRight, fyne.KeyEscape, fyne.KeyEnter} {
-		if got, ok := digitKey(key); ok {
-			t.Errorf("digitKey(%q) = %q, true; quiero que falle", key, got)
+		if got, ok := app.DigitKey(key); ok {
+			t.Errorf("DigitKey(%q) = %q, true; quiero que falle", key, got)
 		}
 	}
 }
@@ -42,9 +44,9 @@ func TestDigitKey(t *testing.T) {
 func TestFloatingPillEsContenedorReal(t *testing.T) {
 	test.NewApp()
 
-	pill := newFloatingPill()
-	if _, ok := fyne.CanvasObject(pill.root).(*fyne.Container); !ok {
-		t.Fatalf("pill.root no es *fyne.Container, es %T", pill.root)
+	pill := app.NewTestPill()
+	if _, ok := pill.Root().(*fyne.Container); !ok {
+		t.Fatalf("pill.root no es *fyne.Container, es %T", pill.Root())
 	}
 	if pill.Visible() {
 		t.Fatal("el HUD debe nacer oculto")
@@ -55,7 +57,7 @@ func TestFloatingPillEsContenedorReal(t *testing.T) {
 	if !pill.Visible() {
 		t.Fatal("Show debería hacer visible el HUD")
 	}
-	if got := pill.label.Text; got != "Página 7 / 42" {
+	if got := pill.Text(); got != "Página 7 / 42" {
 		t.Fatalf("texto = %q, quiero %q", got, "Página 7 / 42")
 	}
 

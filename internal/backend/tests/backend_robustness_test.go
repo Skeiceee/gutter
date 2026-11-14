@@ -1,4 +1,4 @@
-package backend
+package tests
 
 import (
 	"archive/zip"
@@ -11,23 +11,17 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"gutter/internal/backend"
 )
 
-func newLoadTestComic() *Comic {
-	return &Comic{
-		cache:    newPageCache(defaultPageCacheBudget),
-		thumbs:   newPageCache(defaultThumbCacheBudget),
-		inflight: make(map[string]*loadCall),
-	}
-}
-
 func TestCloseWaitsForInFlightLoad(t *testing.T) {
-	c := newLoadTestComic()
+	c := backend.NewLoadTestComic()
 	started := make(chan struct{})
 	canceled := make(chan struct{})
 
 	go func() {
-		_, _ = c.loadImage(context.Background(), "page:p", "p", c.cache, func(ctx context.Context) (*image.RGBA, error) {
+		_, _ = c.LoadImageForTest(context.Background(), "page:p", "p", func(ctx context.Context) (*image.RGBA, error) {
 			close(started)
 			<-ctx.Done()
 			close(canceled)
@@ -64,7 +58,7 @@ func TestCloseWaitsForInFlightLoad(t *testing.T) {
 }
 
 func TestCancelLoadsAllowsRestart(t *testing.T) {
-	c := newLoadTestComic()
+	c := backend.NewLoadTestComic()
 	var calls atomic.Int32
 	firstStarted := make(chan struct{})
 
@@ -79,7 +73,7 @@ func TestCancelLoadsAllowsRestart(t *testing.T) {
 
 	firstErr := make(chan error, 1)
 	go func() {
-		_, err := c.loadImage(context.Background(), "page:p", "p", c.cache, loader)
+		_, err := c.LoadImageForTest(context.Background(), "page:p", "p", loader)
 		firstErr <- err
 	}()
 
@@ -92,7 +86,7 @@ func TestCancelLoadsAllowsRestart(t *testing.T) {
 		t.Fatal("la primera carga no terminó tras CancelLoads")
 	}
 
-	img, err := c.loadImage(context.Background(), "page:p", "p", c.cache, loader)
+	img, err := c.LoadImageForTest(context.Background(), "page:p", "p", loader)
 	if err != nil {
 		t.Fatalf("la carga nueva falló tras cancelar la anterior: %v", err)
 	}
@@ -112,7 +106,7 @@ func TestMakeThumbnailScalesAndKeepsAspect(t *testing.T) {
 		}
 	}
 
-	thumb := makeThumbnail(src, 64)
+	thumb := backend.MakeThumbnail(src, 64)
 	if got := thumb.Bounds(); got.Dx() != 64 || got.Dy() != 32 {
 		t.Fatalf("miniatura = %v, quiero 64x32", got)
 	}
@@ -120,7 +114,7 @@ func TestMakeThumbnailScalesAndKeepsAspect(t *testing.T) {
 		t.Fatal("la miniatura no conserva los píxeles")
 	}
 
-	same := makeThumbnail(src, 256)
+	same := backend.MakeThumbnail(src, 256)
 	if same.Bounds() != src.Bounds() {
 		t.Fatalf("una imagen pequeña no debe ampliarse: %v", same.Bounds())
 	}
@@ -148,7 +142,7 @@ func TestThumbnailUsesSeparateCache(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	comic, err := OpenComic(comicPath)
+	comic, err := backend.OpenComic(comicPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,23 +155,23 @@ func TestThumbnailUsesSeparateCache(t *testing.T) {
 	if thumb.Bounds().Dx() != 64 {
 		t.Fatalf("miniatura = %v", thumb.Bounds())
 	}
-	if _, ok := comic.thumbs.get("page.png@64"); !ok {
+	if !comic.ThumbnailCached("page.png@64") {
 		t.Fatal("la miniatura no se guardó en su caché")
 	}
-	if _, ok := comic.cache.get("page.png"); ok {
+	if comic.PageCached("page.png") {
 		t.Fatal("la miniatura no debe ocupar la caché de páginas completas")
 	}
 }
 
 func TestLoadImagePreservesProgressContext(t *testing.T) {
-	c := newLoadTestComic()
+	c := backend.NewLoadTestComic()
 	gotScanned, gotTotal := 0, 0
-	ctx := WithReadProgress(context.Background(), func(scanned, total int) {
+	ctx := backend.WithReadProgress(context.Background(), func(scanned, total int) {
 		gotScanned, gotTotal = scanned, total
 	})
 
-	_, err := c.loadImage(ctx, "page:p", "p", c.cache, func(loadCtx context.Context) (*image.RGBA, error) {
-		reportReadProgress(loadCtx, 7, 42)
+	_, err := c.LoadImageForTest(ctx, "page:p", "p", func(loadCtx context.Context) (*image.RGBA, error) {
+		backend.ReportReadProgress(loadCtx, 7, 42)
 		return image.NewRGBA(image.Rect(0, 0, 1, 1)), nil
 	})
 	if err != nil {
@@ -190,14 +184,14 @@ func TestLoadImagePreservesProgressContext(t *testing.T) {
 
 func TestReadProgressContext(t *testing.T) {
 	scanned, total := 0, 0
-	ctx := WithReadProgress(context.Background(), func(s, t int) {
+	ctx := backend.WithReadProgress(context.Background(), func(s, t int) {
 		scanned, total = s, t
 	})
-	reportReadProgress(ctx, 120, 455)
+	backend.ReportReadProgress(ctx, 120, 455)
 	if scanned != 120 || total != 455 {
 		t.Fatalf("progreso = %d/%d", scanned, total)
 	}
-	reportReadProgress(context.Background(), 1, 1)
+	backend.ReportReadProgress(context.Background(), 1, 1)
 	if scanned != 120 {
 		t.Fatal("un contexto sin callback no debe actualizar el progreso")
 	}

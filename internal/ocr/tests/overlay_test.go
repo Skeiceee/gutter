@@ -1,19 +1,21 @@
-package ocr
+package tests
 
 import (
 	"image"
 	"testing"
+
+	"gutter/internal/ocr"
 )
 
 func TestRenderTranslationOverlay(t *testing.T) {
 	bounds := image.Rect(0, 0, 300, 200)
-	bubbles := []TranslatedBubble{{
+	bubbles := []ocr.TranslatedBubble{{
 		Box:    image.Rect(20, 20, 280, 120),
 		Source: "HELLO, WORLD.",
 		Text:   "HOLA, MUNDO.",
 	}}
 
-	overlay, err := RenderTranslationOverlay(bounds, bubbles)
+	overlay, err := ocr.RenderTranslationOverlay(bounds, bubbles)
 	if err != nil {
 		t.Fatalf("RenderTranslationOverlay: %v", err)
 	}
@@ -46,13 +48,13 @@ func TestRenderTranslationOverlay(t *testing.T) {
 }
 
 func TestContainsCJK(t *testing.T) {
-	if !containsCJK("こんにちは世界") {
+	if !ocr.ContainsCJK("こんにちは世界") {
 		t.Fatal("debería detectar japonés/chino")
 	}
-	if !containsCJK("안녕하세요") {
+	if !ocr.ContainsCJK("안녕하세요") {
 		t.Fatal("debería detectar coreano")
 	}
-	if containsCJK("Hola, mundo") {
+	if ocr.ContainsCJK("Hola, mundo") {
 		t.Fatal("no debería detectar CJK en texto latino")
 	}
 }

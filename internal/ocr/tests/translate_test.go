@@ -1,4 +1,4 @@
-package ocr
+package tests
 
 import (
 	"context"
@@ -8,36 +8,38 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"gutter/internal/ocr"
 )
 
 func TestLanguageMapping(t *testing.T) {
-	ja := LanguageByCode("JA", "en")
+	ja := ocr.LanguageByCode("JA", "en")
 	if ja.Code != "ja" || ja.Tesseract != "jpn" || ja.Windows != "ja-JP" {
 		t.Fatalf("mapeo de japonés inesperado: %+v", ja)
 	}
-	if got := LanguageByCode("no-existe", "es"); got.Code != "es" {
+	if got := ocr.LanguageByCode("no-existe", "es"); got.Code != "es" {
 		t.Fatalf("fallback = %q, quiero es", got.Code)
 	}
-	if got := LanguageCodeFromLabel(LanguageLabel(ja), "en"); got != "ja" {
+	if got := ocr.LanguageCodeFromLabel(ocr.LanguageLabel(ja), "en"); got != "ja" {
 		t.Fatalf("LanguageCodeFromLabel = %q", got)
 	}
 }
 
 func TestProviderMapping(t *testing.T) {
-	if got := ProviderByCode("DEEPL"); got.Code != "deepl" {
+	if got := ocr.ProviderByCode("DEEPL"); got.Code != "deepl" {
 		t.Fatalf("proveedor = %q", got.Code)
 	}
-	if got := ProviderByCode("desconocido"); got.Code != "mymemory" {
+	if got := ocr.ProviderByCode("desconocido"); got.Code != "mymemory" {
 		t.Fatalf("fallback de proveedor = %q", got.Code)
 	}
-	if got := ProviderCodeFromLabel(ProviderByCode("libretranslate").Label); got != "libretranslate" {
+	if got := ocr.ProviderCodeFromLabel(ocr.ProviderByCode("libretranslate").Label); got != "libretranslate" {
 		t.Fatalf("ProviderCodeFromLabel = %q", got)
 	}
 }
 
 func TestSplitForTranslation(t *testing.T) {
 	text := strings.Repeat("palabra ", 100)
-	chunks := splitForTranslation(text, 100)
+	chunks := ocr.SplitForTranslation(text, 100)
 	if len(chunks) < 2 {
 		t.Fatalf("se esperaban varios fragmentos, hay %d", len(chunks))
 	}
@@ -67,15 +69,15 @@ func TestLibreTranslateRequestAndResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := TranslationConfig{
-		Source:   LanguageByCode("en", "en"),
-		Target:   LanguageByCode("es", "es"),
+	cfg := ocr.TranslationConfig{
+		Source:   ocr.LanguageByCode("en", "en"),
+		Target:   ocr.LanguageByCode("es", "es"),
 		Provider: "libretranslate",
 		Endpoint: server.URL,
 	}
-	got, err := translateWithLibreTranslate(context.Background(), cfg, "HELLO")
+	got, err := ocr.TranslateWithLibreTranslate(context.Background(), cfg, "HELLO")
 	if err != nil {
-		t.Fatalf("translateWithLibreTranslate: %v", err)
+		t.Fatalf("TranslateWithLibreTranslate: %v", err)
 	}
 	if got != "HOLA" {
 		t.Fatalf("traducción = %q, quiero HOLA", got)
@@ -94,16 +96,16 @@ func TestDeepLRequestAndResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := TranslationConfig{
-		Source:   LanguageByCode("en", "en"),
-		Target:   LanguageByCode("es", "es"),
+	cfg := ocr.TranslationConfig{
+		Source:   ocr.LanguageByCode("en", "en"),
+		Target:   ocr.LanguageByCode("es", "es"),
 		Provider: "deepl",
 		Endpoint: server.URL,
 		APIKey:   "test-key",
 	}
-	got, err := translateWithDeepL(context.Background(), cfg, "HELLO")
+	got, err := ocr.TranslateWithDeepL(context.Background(), cfg, "HELLO")
 	if err != nil {
-		t.Fatalf("translateWithDeepL: %v", err)
+		t.Fatalf("TranslateWithDeepL: %v", err)
 	}
 	if got != "HOLA" {
 		t.Fatalf("traducción = %q, quiero HOLA", got)
@@ -111,13 +113,13 @@ func TestDeepLRequestAndResponse(t *testing.T) {
 }
 
 func TestTranslateBubbleTextOcrOnly(t *testing.T) {
-	cfg := TranslationConfig{
-		Source: LanguageByCode("ja", "en"),
-		Target: LanguageByCode("ja", "en"),
+	cfg := ocr.TranslationConfig{
+		Source: ocr.LanguageByCode("ja", "en"),
+		Target: ocr.LanguageByCode("ja", "en"),
 	}
-	got, err := translateBubbleText(context.Background(), cfg, "こんにちは")
+	got, err := ocr.TranslateBubbleText(context.Background(), cfg, "こんにちは")
 	if err != nil {
-		t.Fatalf("translateBubbleText: %v", err)
+		t.Fatalf("TranslateBubbleText: %v", err)
 	}
 	if got != "こんにちは" {
 		t.Fatalf("texto = %q", got)
@@ -133,11 +135,11 @@ func TestDeepLCodes(t *testing.T) {
 		"zh": "ZH",
 	}
 	for code, want := range cases {
-		if got := deepLCode(code, false); got != want {
-			t.Errorf("deepLCode(%q) = %q, quiero %q", code, got, want)
+		if got := ocr.DeepLCode(code, false); got != want {
+			t.Errorf("DeepLCode(%q) = %q, quiero %q", code, got, want)
 		}
 	}
-	if got := deepLCode("pt", true); got != "PT" {
-		t.Errorf("deepLCode(pt, source) = %q, quiero PT", got)
+	if got := ocr.DeepLCode("pt", true); got != "PT" {
+		t.Errorf("DeepLCode(pt, source) = %q, quiero PT", got)
 	}
 }
