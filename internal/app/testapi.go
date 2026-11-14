@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"gutter/internal/backend"
+	"gutter/internal/ocr"
 )
 
 // RecentComic da nombre exportado a la entrada de progreso persistida.
@@ -20,13 +21,18 @@ type RecentComic = recentComic
 
 // Constantes y tablas que antes usaban los tests internos.
 const (
-	MaxRecentComics      = maxRecentComics
-	PrefRecentComics     = prefRecentComics
-	PrefSortMode         = prefSortMode
-	PrefFilterJunk       = prefFilterJunk
-	PrefIntegrityCheck   = prefIntegrityCheck
-	PrefGridThumbSize    = prefGridThumbSize
-	DefaultGridThumbSize = defaultGridThumbSize
+	MaxRecentComics       = maxRecentComics
+	PrefRecentComics      = prefRecentComics
+	PrefSortMode          = prefSortMode
+	PrefFilterJunk        = prefFilterJunk
+	PrefIntegrityCheck    = prefIntegrityCheck
+	PrefGridThumbSize     = prefGridThumbSize
+	PrefDiskCacheLimitMB  = prefDiskCacheLimitMB
+	PrefRememberWindow    = prefRememberWindow
+	PrefPageBadge         = prefPageBadge
+	PrefCheckUpdates      = prefCheckUpdates
+	DefaultGridThumbSize  = defaultGridThumbSize
+	DefaultDiskCacheLimit = defaultDiskCacheLimit
 )
 
 var (
@@ -66,8 +72,8 @@ func (t *TestApp) SetPrefInt(key string, value int)   { t.app.prefs.SetInt(key, 
 func (t *TestApp) SetPrefString(key, value string)    { t.app.prefs.SetString(key, value) }
 func (t *TestApp) SetPrefBool(key string, value bool) { t.app.prefs.SetBool(key, value) }
 
-func (t *TestApp) SetComic(c *backend.Comic) { t.app.comic = c }
-func (t *TestApp) Comic() *backend.Comic     { return t.app.comic }
+func (t *TestApp) SetComic(c *backend.Comic) { t.app.reader.comic = c }
+func (t *TestApp) Comic() *backend.Comic     { return t.app.reader.comic }
 
 func (t *TestApp) SetRecents(recents []RecentComic) { t.app.recents = recents }
 func (t *TestApp) Recents() []RecentComic           { return t.app.recents }
@@ -75,28 +81,28 @@ func (t *TestApp) SetDiskCache(c *backend.DiskCache) {
 	t.app.diskCache = c
 }
 
-func (t *TestApp) SetPageIndex(index int) { t.app.pageIndex = index }
-func (t *TestApp) PageIndex() int         { return t.app.pageIndex }
+func (t *TestApp) SetPageIndex(index int) { t.app.reader.pageIndex = index }
+func (t *TestApp) PageIndex() int         { return t.app.reader.pageIndex }
 
-func (t *TestApp) SetHalf(half int) { t.app.half = half }
-func (t *TestApp) Half() int        { return t.app.half }
+func (t *TestApp) SetHalf(half int) { t.app.reader.half = half }
+func (t *TestApp) Half() int        { return t.app.reader.half }
 
-func (t *TestApp) SetManga(manga bool) { t.app.manga = manga }
-func (t *TestApp) Manga() bool         { return t.app.manga }
+func (t *TestApp) SetManga(manga bool) { t.app.reader.manga = manga }
+func (t *TestApp) Manga() bool         { return t.app.reader.manga }
 
-func (t *TestApp) SetSinglePage(single bool) { t.app.singlePage = single }
-func (t *TestApp) SinglePage() bool          { return t.app.singlePage }
+func (t *TestApp) SetSinglePage(single bool) { t.app.reader.singlePage = single }
+func (t *TestApp) SinglePage() bool          { return t.app.reader.singlePage }
 
-func (t *TestApp) SetZoomFit(fit bool)    { t.app.zoomFit = fit }
-func (t *TestApp) ZoomFit() bool          { return t.app.zoomFit }
-func (t *TestApp) SetZoomScale(z float32) { t.app.zoomScale = z }
-func (t *TestApp) ZoomScale() float32     { return t.app.zoomScale }
+func (t *TestApp) SetZoomFit(fit bool)    { t.app.reader.zoomFit = fit }
+func (t *TestApp) ZoomFit() bool          { return t.app.reader.zoomFit }
+func (t *TestApp) SetZoomScale(z float32) { t.app.reader.zoomScale = z }
+func (t *TestApp) ZoomScale() float32     { return t.app.reader.zoomScale }
 
-func (t *TestApp) SetCleanMode(clean bool) { t.app.cleanMode = clean }
-func (t *TestApp) CleanMode() bool         { return t.app.cleanMode }
+func (t *TestApp) SetCleanMode(clean bool) { t.app.reader.cleanMode = clean }
+func (t *TestApp) CleanMode() bool         { return t.app.reader.cleanMode }
 
-func (t *TestApp) SetLoading(loading bool) { t.app.loading = loading }
-func (t *TestApp) Loading() bool           { return t.app.loading }
+func (t *TestApp) SetLoading(loading bool) { t.app.reader.loading = loading }
+func (t *TestApp) Loading() bool           { return t.app.reader.loading }
 
 func (t *TestApp) SetReadProgress(scanned, total int64) {
 	t.app.readScanned.Store(scanned)
@@ -106,10 +112,10 @@ func (t *TestApp) SetReadProgress(scanned, total int64) {
 func (t *TestApp) SetPageFailed(failed bool) { t.app.pageFailed = failed }
 
 func (t *TestApp) SetShown(comic *backend.Comic, page, half int, spread bool) {
-	t.app.shownComic = comic
-	t.app.shownPage = page
-	t.app.shownHalf = half
-	t.app.shownSpread = spread
+	t.app.reader.shownComic = comic
+	t.app.reader.shownPage = page
+	t.app.reader.shownHalf = half
+	t.app.reader.shownSpread = spread
 }
 
 func (t *TestApp) UpdateControls() { t.app.updateControls() }
@@ -196,7 +202,7 @@ func (t *TestApp) InitGrid(pages int) *backend.Comic {
 		names[i] = "page.png"
 	}
 	comic := &backend.Comic{Path: "test.cbz", Pages: names}
-	g.comic = comic
+	g.reader.comic = comic
 
 	g.gridOpen = true
 	g.gridComic = comic
@@ -270,3 +276,92 @@ func (t *TestApp) SetGridScrollOffsetY(y float32) {
 func (t *TestApp) ApplyGridThumbnail(seq uint64, comic *backend.Comic, index int, img *image.RGBA, err error) {
 	t.app.applyGridThumbnail(seq, comic, index, img, err)
 }
+
+// Reader envuelve readerState para probar la navegación sin construir la
+// interfaz. Los campos siguen siendo privados: solo se expone lo que verifican
+// las pruebas de internal/app/tests.
+type Reader struct{ state *readerState }
+
+func NewReader() *Reader { s := newReaderState(); return &Reader{state: &s} }
+
+func (t *TestApp) Reader() *Reader { return &Reader{state: &t.app.reader} }
+
+func (r *Reader) SetComic(c *backend.Comic) { r.state.comic = c }
+func (r *Reader) Comic() *backend.Comic     { return r.state.comic }
+
+func (r *Reader) SetPage(index int) { r.state.pageIndex = index }
+func (r *Reader) Page() int         { return r.state.pageIndex }
+
+func (r *Reader) SetHalf(half int) { r.state.half = half }
+func (r *Reader) Half() int        { return r.state.half }
+
+func (r *Reader) SetSpread(spread bool) { r.state.spread = spread }
+func (r *Reader) Spread() bool          { return r.state.spread }
+
+func (r *Reader) SetSinglePage(single bool) { r.state.singlePage = single }
+func (r *Reader) SinglePage() bool          { return r.state.singlePage }
+
+func (r *Reader) SetManga(manga bool) { r.state.manga = manga }
+func (r *Reader) Manga() bool         { return r.state.manga }
+
+func (r *Reader) SetLoading(loading bool) { r.state.loading = loading }
+func (r *Reader) Loading() bool           { return r.state.loading }
+
+func (r *Reader) ZoomFit() bool      { return r.state.zoomFit }
+func (r *Reader) ZoomScale() float32 { return r.state.zoomScale }
+
+func (r *Reader) Next() bool     { return r.state.next() }
+func (r *Reader) Previous() bool { return r.state.previous() }
+func (r *Reader) GoTo(index int) { r.state.goTo(index) }
+func (r *Reader) IsRightHalf() bool {
+	return r.state.isRightHalf()
+}
+
+func (r *Reader) RestoreFrom(entry RecentComic, total int) { r.state.restoreFrom(entry, total) }
+func (r *Reader) RememberShown()                           { r.state.rememberShown() }
+func (r *Reader) RestoreShown()                            { r.state.restoreShown() }
+
+func (r *Reader) SetViewport(size fyne.Size) bool { return r.state.setViewport(size) }
+func (r *Reader) Viewport() fyne.Size             { return r.state.viewport }
+
+// SettingsSnapshot permite construir las preferencias unificadas desde el
+// paquete externo de pruebas sin exponer los campos de settingsSnapshot.
+type SettingsSnapshot struct {
+	Sort           string
+	FilterJunk     bool
+	IntegrityCheck bool
+	ThumbSize      int
+	SinglePage     bool
+	Manga          bool
+	DiskLimitMB    int
+	Translation    ocr.TranslationConfig
+	RememberWindow bool
+	PageBadge      bool
+	CheckUpdates   bool
+}
+
+func (s SettingsSnapshot) internal() settingsSnapshot {
+	return settingsSnapshot{
+		sort:           s.Sort,
+		filterJunk:     s.FilterJunk,
+		integrityCheck: s.IntegrityCheck,
+		thumbSize:      s.ThumbSize,
+		singlePage:     s.SinglePage,
+		manga:          s.Manga,
+		diskLimitMB:    s.DiskLimitMB,
+		translation:    s.Translation,
+		rememberWindow: s.RememberWindow,
+		pageBadge:      s.PageBadge,
+		checkUpdates:   s.CheckUpdates,
+	}
+}
+
+func (t *TestApp) ApplySettings(s SettingsSnapshot) { t.app.applySettings(s.internal()) }
+
+func (t *TestApp) SortMode() backend.SortMode { return t.app.sortMode() }
+func (t *TestApp) FilterJunk() bool           { return t.app.filterJunk() }
+func (t *TestApp) IntegrityCheck() bool       { return t.app.integrityCheck() }
+func (t *TestApp) DiskLimitMB() int           { return t.app.diskLimitMB() }
+func (t *TestApp) RememberWindowSize() bool   { return t.app.rememberWindowSize() }
+func (t *TestApp) ShowPageBadgePref() bool    { return t.app.showPageBadgePref() }
+func (t *TestApp) CheckUpdatesOnStart() bool  { return t.app.checkUpdatesOnStart() }

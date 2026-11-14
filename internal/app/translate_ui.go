@@ -6,27 +6,24 @@ package app
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/widget"
 	"gutter/internal/ocr"
 )
 
 func (g *gutterApp) translationCacheKey(cfg ocr.TranslationConfig) string {
-	if g.comic == nil {
+	if g.reader.comic == nil {
 		return ""
 	}
 	return fmt.Sprintf(
 		"%s|%d|%d|%t|%t|%s|%s|%s|%s",
-		g.comic.Path,
-		g.pageIndex,
-		g.half,
-		g.singlePage,
-		g.manga,
+		g.reader.comic.Path,
+		g.reader.pageIndex,
+		g.reader.half,
+		g.reader.singlePage,
+		g.reader.manga,
 		cfg.Source.Code,
 		cfg.Target.Code,
 		cfg.Provider,
@@ -37,11 +34,11 @@ func (g *gutterApp) translationCacheKey(cfg ocr.TranslationConfig) string {
 // toggleTranslation muestra u oculta la capa traducida. La primera vez
 // ejecuta OCR + traducción; después reutiliza la caché de la página.
 func (g *gutterApp) toggleTranslation() {
-	if g.comic == nil || g.pageImage.Image == nil {
+	if g.reader.comic == nil || g.pageImage.Image == nil {
 		dialog.ShowInformation("Traducción", "Abre un cómic para traducir una página.", g.window)
 		return
 	}
-	if g.loading || g.translating {
+	if g.reader.loading || g.translating {
 		return
 	}
 	if g.translationVisible {
@@ -141,77 +138,7 @@ func (g *gutterApp) clearTranslation() {
 	g.pageCanvas.Refresh()
 }
 
+// showTranslationSettings abre las preferencias en la pestaña de traducción.
 func (g *gutterApp) showTranslationSettings() {
-	current := ocr.CurrentTranslationConfig(g.prefs)
-
-	sourceSelect := widget.NewSelect(ocr.LanguageLabels(), nil)
-	sourceSelect.SetSelected(ocr.LanguageLabel(current.Source))
-	targetSelect := widget.NewSelect(ocr.LanguageLabels(), nil)
-	targetSelect.SetSelected(ocr.LanguageLabel(current.Target))
-
-	providerSelect := widget.NewSelect(ocr.ProviderLabels(), nil)
-	providerSelect.SetSelected(ocr.ProviderByCode(current.Provider).Label)
-
-	endpointEntry := widget.NewEntry()
-	endpointEntry.SetText(current.Endpoint)
-	endpointEntry.SetPlaceHolder("Vacío = servicio oficial del proveedor")
-
-	apiKeyEntry := widget.NewPasswordEntry()
-	apiKeyEntry.SetText(current.APIKey)
-	apiKeyEntry.SetPlaceHolder("Solo para LibreTranslate o DeepL")
-
-	ocrOnlyCheck := widget.NewCheck("Solo reconocer el texto (sin traducir)", nil)
-	ocrOnlyCheck.SetChecked(current.OCROnly)
-
-	hint := widget.NewLabel(
-		"El OCR se ejecuta en tu equipo; solo el texto reconocido se envía al " +
-			"traductor elegido. MyMemory no necesita clave y tiene un límite " +
-			"gratuito diario. Para uso intensivo, configura un servidor " +
-			"LibreTranslate o una clave DeepL.\n\n" +
-			"En Windows se usa el OCR integrado del sistema; si el idioma no está " +
-			"instalado, Gutter intentará Tesseract. En otros sistemas hace falta " +
-			"Tesseract en el PATH.",
-	)
-	hint.Wrapping = fyne.TextWrapWord
-	hint.Importance = widget.LowImportance
-
-	form := widget.NewForm(
-		widget.NewFormItem("Idioma del cómic", sourceSelect),
-		widget.NewFormItem("Traducir a", targetSelect),
-		widget.NewFormItem("Proveedor", providerSelect),
-		widget.NewFormItem("Endpoint (LibreTranslate/DeepL)", endpointEntry),
-		widget.NewFormItem("Clave API (LibreTranslate/DeepL)", apiKeyEntry),
-		widget.NewFormItem("Modo", ocrOnlyCheck),
-	)
-	content := container.NewVBox(form, widget.NewSeparator(), hint)
-	scroll := container.NewVScroll(content)
-	scroll.SetMinSize(fyne.NewSize(520, 360))
-
-	d := dialog.NewCustomConfirm(
-		"OCR y traducción",
-		"Guardar",
-		"Cancelar",
-		scroll,
-		func(saved bool) {
-			if !saved {
-				return
-			}
-			sourceCode := ocr.LanguageCodeFromLabel(sourceSelect.Selected, current.Source.Code)
-			targetCode := ocr.LanguageCodeFromLabel(targetSelect.Selected, current.Target.Code)
-			g.prefs.SetString(ocr.PrefOCRSource, sourceCode)
-			g.prefs.SetString(ocr.PrefTranslateTarget, targetCode)
-			g.prefs.SetString(ocr.PrefTranslateProvider, ocr.ProviderCodeFromLabel(providerSelect.Selected))
-			g.prefs.SetString(ocr.PrefTranslateEndpoint, strings.TrimSpace(endpointEntry.Text))
-			g.prefs.SetString(ocr.PrefTranslateAPIKey, strings.TrimSpace(apiKeyEntry.Text))
-			g.prefs.SetBool(ocr.PrefTranslateOCROnly, ocrOnlyCheck.Checked)
-
-			// Si cambian idioma o proveedor, la capa anterior ya no es válida.
-			g.translateSeq.Add(1)
-			g.translating = false
-			g.clearTranslation()
-		},
-		g.window,
-	)
-	d.Resize(fyne.NewSize(600, 560))
-	g.showDialog(d)
+	g.showSettings(settingsTabTranslation)
 }

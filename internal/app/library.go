@@ -139,7 +139,7 @@ func (g *gutterApp) upsertRecent(entry recentComic) {
 
 	g.recents = updated
 	g.saveRecents()
-	if g.comic == nil {
+	if g.reader.comic == nil {
 		g.refreshWelcome()
 	}
 }
@@ -158,46 +158,24 @@ func (g *gutterApp) findRecent(comicPath string) (recentComic, bool) {
 // mostrar una página y al cerrar la ventana; así no se pierde nada importante
 // aunque el cierre sea inmediato.
 func (g *gutterApp) saveCurrentProgress() {
-	if g.comic == nil || len(g.comic.Pages) == 0 {
+	entry, ok := g.reader.progressEntry()
+	if !ok {
 		return
 	}
-	g.upsertRecent(recentComic{
-		Path:       g.comic.Path,
-		Page:       g.pageIndex,
-		Half:       g.half,
-		Total:      len(g.comic.Pages),
-		Manga:      g.manga,
-		SinglePage: g.singlePage,
-		ZoomFit:    g.zoomFit,
-		ZoomScale:  g.zoomScale,
-	})
+	g.upsertRecent(entry)
 }
 
 // restoreProgress aplica la última sesión del cómic. Si no hay entrada previa,
 // el cómic empieza en la primera página y en modo ajuste al ancho.
 func (g *gutterApp) restoreProgress(comic *backend.Comic) {
-	g.pageIndex = 0
-	g.half = 0
-	g.zoomFit = true
-	g.zoomScale = 1
+	g.reader.resetProgress()
 
 	entry, ok := g.findRecent(comic.Path)
 	if !ok || len(comic.Pages) == 0 {
-		g.syncReadingControls()
 		return
 	}
 
-	g.pageIndex = clampPage(entry.Page, len(comic.Pages))
-	if entry.Half == 1 {
-		g.half = 1
-	}
-	g.manga = entry.Manga
-	g.singlePage = entry.SinglePage
-	g.zoomFit = entry.ZoomFit
-	if entry.ZoomScale > 0 {
-		g.zoomScale = clampZoom(entry.ZoomScale)
-	}
-	g.syncReadingControls()
+	g.reader.restoreFrom(entry, len(comic.Pages))
 }
 
 func clampPage(page, total int) int {
@@ -399,11 +377,11 @@ func (g *gutterApp) showRecents() {
 // saveWindowSize guarda el tamaño de la ventana en modo normal. Si se cierra
 // mientras está a pantalla completa, conserva el último tamaño de ventana.
 func (g *gutterApp) saveWindowSize() {
-	if g.prefs == nil {
+	if g.prefs == nil || !g.rememberWindowSize() {
 		return
 	}
 	size := g.lastWindowedSize
-	if !g.cleanMode && !g.window.FullScreen() {
+	if !g.reader.cleanMode && !g.window.FullScreen() {
 		if current := g.window.Canvas().Size(); current.Width > 0 && current.Height > 0 {
 			size = current
 		}

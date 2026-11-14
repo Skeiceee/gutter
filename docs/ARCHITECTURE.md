@@ -33,8 +33,11 @@ Orquesta la ventana Fyne y toda la lógica de lectura.
 | `library.go` | Progreso persistente, lista de recientes, pantalla de bienvenida. |
 | `navigation.go` | Zoom, scroll, paginación, precarga de las tres páginas siguientes y la anterior, `updateControls`, `clampZoom`, `updateZoomLabel`. |
 | `run.go` | `Run()`: crea la aplicación Fyne, instala el tema, configura `OnStarted` y lanza `ShowAndRun()`. |
-| `settings.go` | Preferencias de lectura (orden, filtro, integridad), caché de disco, diálogo de opciones y estadísticas de «Acerca de». |
-| `translate_ui.go` | Activación de OCR/traducción bajo demanda (`T`), caché por página, diálogo de configuración. |
+| `settings.go` | Claves y accesores de preferencias, caché de disco y aviso de integridad. |
+| `settings_ui.go` | Diálogo único de Preferencias con pestañas (Lectura, Caché, Traducción, Interfaz) y aplicación de cambios. |
+| `state.go` | `readerState`: cómic, página, mitad, spread, sentido, zoom, modo limpio y snapshot de la última página dibujada. Contiene la navegación pura y no importa widgets. |
+| `translate_ui.go` | Activación de OCR/traducción bajo demanda (`T`) y caché por página. |
+| `update_ui.go` | «Acerca de», versión, apertura de enlaces y comprobación de actualizaciones. |
 | `ui.go` | `showPage`, `reportLoadError`, marcador de página fallida, `toggleCleanMode`, `handleKey`, `buildBottomBar`, `onReaderResize`, `updateZoomLabel`. |
 
 **Flujo de arranque:**
@@ -47,6 +50,7 @@ main.Run()                      ← main.go llama a app.Run()
   └─ a.Lifecycle().SetOnStarted()
         └─ FitWindowToPrimaryScreen()
         └─ LoadComic(initialComic)  (si se pasó por CLI)
+        └─ maybeCheckUpdates()      (solo si está activado en Preferencias)
   └─ app.Run()                  ← window.ShowAndRun()
 ```
 
@@ -122,6 +126,18 @@ tareas) vía GLFW en escritorio; devuelve cero en móvil/web.
 
 Asociación de archivos `.cbr`/`.cbz` con Gutter en Windows (registro en
 `HKCU\Software\Classes`). Solo afecta al usuario actual y pide confirmación.
+
+### `internal/version`
+
+Versión semántica inyectada al compilar
+(`-X gutter/internal/version.Version=...`), detalle con commit y fecha extraído
+de `debug.ReadBuildInfo`, y `Compare` para decidir si una release es más nueva.
+
+### `internal/update`
+
+Consulta `https://api.github.com/repos/Skeiceee/gutter/releases/latest` con
+tiempo límite y devuelve tag, nombre, notas y URL de descarga. No descarga ni
+instala nada: la interfaz abre el navegador.
 
 ---
 
@@ -201,6 +217,13 @@ incrementa `gridSeq` para descartar resultados en vuelo y se vacía la capa.
 7. **La caché en disco es opcional y best-effort**: un fallo de escritura nunca impide leer; la app puede funcionar sin directorio de caché.
 8. **La lectura nunca se bloquea por una página rota**: los errores de página se muestran en el área de lectura con «Reintentar»; solo los fallos al abrir usan diálogo.
 9. **La rejilla no bloquea la lectura**: cancela sus cargas al cerrarse, descarta lotes antiguos por secuencia y pide solo la zona visible, salvo en RAR sólidos donde un único recorrido secuencial es más barato.
+10. **Estado de lectura separado de la UI**: `readerState` no conoce Fyne,
+    contextos ni diálogos. `gutterApp` conserva solo la orquestación (cargar,
+    dibujar, avisar), lo que permite probar navegación, mitades y restauración
+    de progreso con pruebas unitarias.
+11. **Preferencias en un solo diálogo**: `settings_ui.go` es la única entrada
+    para cambiar lectura, caché, traducción e interfaz. Las claves viven en
+    `settings.go` y ningún otro archivo escribe preferencias de usuario.
 
 ---
 

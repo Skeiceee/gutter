@@ -18,7 +18,7 @@ func (g *gutterApp) applyPageZoom(resetScroll bool) {
 		return
 	}
 
-	view := g.viewport
+	view := g.reader.viewport
 	if view.Width <= 0 || view.Height <= 0 {
 		view = g.scroll.Size()
 	}
@@ -26,8 +26,8 @@ func (g *gutterApp) applyPageZoom(resetScroll bool) {
 		return
 	}
 
-	scale := g.zoomScale
-	if g.zoomFit {
+	scale := g.reader.zoomScale
+	if g.reader.zoomFit {
 		avail := view.Width - 2*pageMargin
 		if avail < 80 {
 			avail = view.Width
@@ -35,7 +35,7 @@ func (g *gutterApp) applyPageZoom(resetScroll bool) {
 		scale = (avail / float32(b.Dx())) * defaultZoomFactor
 	}
 	scale = clampZoom(scale)
-	g.zoomScale = scale
+	g.reader.setZoomScale(scale)
 
 	w := float32(b.Dx()) * scale
 	h := float32(b.Dy()) * scale
@@ -77,8 +77,8 @@ func (g *gutterApp) scrollVertical(dy float32) {
 }
 
 func (g *gutterApp) scrollStep() float32 {
-	if g.viewport.Height > 0 {
-		return fyne.Max(60, g.viewport.Height*0.10)
+	if g.reader.viewport.Height > 0 {
+		return fyne.Max(60, g.reader.viewport.Height*0.10)
 	}
 	return 80
 }
@@ -86,11 +86,10 @@ func (g *gutterApp) scrollStep() float32 {
 // zoomBy cambia a zoom manual manteniendo el nivel actual como punto de partida.
 
 func (g *gutterApp) zoomBy(factor float32) {
-	if g.comic == nil || g.pageImage.Image == nil || g.loading {
+	if g.reader.comic == nil || g.pageImage.Image == nil || g.reader.loading {
 		return
 	}
-	g.zoomFit = false
-	g.zoomScale = clampZoom(g.zoomScale * factor)
+	g.reader.zoomBy(factor)
 	g.applyPageZoom(true)
 	g.unfocus()
 }
@@ -101,7 +100,7 @@ func (g *gutterApp) fitWidth() {
 	if g.pageImage.Image == nil {
 		return
 	}
-	g.zoomFit = true
+	g.reader.fitWidth()
 	g.applyPageZoom(true)
 	g.unfocus()
 }
@@ -112,8 +111,7 @@ func (g *gutterApp) zoom100() {
 	if g.pageImage.Image == nil {
 		return
 	}
-	g.zoomFit = false
-	g.zoomScale = 1
+	g.reader.zoom100()
 	g.applyPageZoom(true)
 	g.unfocus()
 }
@@ -134,94 +132,42 @@ func (g *gutterApp) nextPage() {
 
 	// Se permite navegar durante una carga: showPage cancela la anterior. Así
 	// una pulsación rápida de flecha no espera a que termine un RAR sólido.
-	if g.comic == nil {
+	if !g.reader.next() {
 		return
 	}
-
-	// Mientras carga, no conocemos todavía si la página destino es un spread:
-	// avanzamos de página directamente y dejamos que showPage lo resuelva.
-	if g.loading {
-		if g.pageIndex < len(g.comic.Pages)-1 {
-			g.pageIndex++
-			g.half = 0
-			g.showPage()
-		}
-		return
-	}
-
-	// Primero la segunda mitad de una doble página.
-	if g.singlePage && g.spread && g.half == 0 {
-		g.half = 1
-		g.showPage()
-		return
-	}
-
-	if g.pageIndex < len(g.comic.Pages)-1 {
-		g.pageIndex++
-		g.half = 0
-		g.showPage()
-	}
+	g.showPage()
 }
 
 func (g *gutterApp) previousPage() {
 	defer g.unfocus()
 
-	if g.comic == nil {
+	if !g.reader.previous() {
 		return
 	}
-
-	if g.loading {
-		if g.pageIndex > 0 {
-			g.pageIndex--
-			g.half = 0
-			g.showPage()
-		}
-		return
-	}
-
-	if g.singlePage && g.spread && g.half == 1 {
-		g.half = 0
-		g.showPage()
-		return
-	}
-
-	if g.pageIndex > 0 {
-		g.pageIndex--
-		// Al retroceder, si la página anterior era doble, mostramos su última
-		// mitad. showPage lo corrige a 0 si finalmente no es una doble página.
-		g.half = 1
-		g.showPage()
-	}
+	g.showPage()
 }
 
 func (g *gutterApp) goToPage(index int) {
 	defer g.unfocus()
 
-	if g.comic == nil {
+	if g.reader.comic == nil {
 		return
 	}
-	if index < 0 {
-		index = 0
-	}
-	if index >= len(g.comic.Pages) {
-		index = len(g.comic.Pages) - 1
-	}
-	g.pageIndex = index
-	g.half = 0
+	g.reader.goTo(index)
 	g.showPage()
 }
 
 // prefetchAdjacent precarga las tres páginas siguientes y la anterior. En un
 // RAR sólido el backend recorre el contenedor una sola vez para todas ellas.
 func (g *gutterApp) prefetchAdjacent(ctx context.Context, comic *backend.Comic) {
-	if comic == nil || ctx == nil || g.comic != comic {
+	if comic == nil || ctx == nil || g.reader.comic != comic {
 		return
 	}
 
 	names := make([]string, 0, 4)
 	seen := make(map[string]struct{}, 4)
 	appendPage := func(index int) {
-		if index < 0 || index >= len(comic.Pages) || index == g.pageIndex {
+		if index < 0 || index >= len(comic.Pages) || index == g.reader.pageIndex {
 			return
 		}
 		name := comic.Pages[index]
@@ -233,9 +179,9 @@ func (g *gutterApp) prefetchAdjacent(ctx context.Context, comic *backend.Comic) 
 	}
 
 	for offset := 1; offset <= 3; offset++ {
-		appendPage(g.pageIndex + offset)
+		appendPage(g.reader.pageIndex + offset)
 	}
-	appendPage(g.pageIndex - 1)
+	appendPage(g.reader.pageIndex - 1)
 
 	if len(names) == 0 {
 		return
@@ -252,7 +198,7 @@ func (g *gutterApp) updateControls() {
 	// no solo aparecer al entrar en modo limpio.
 	defer g.updatePageBadge()
 
-	if g.comic == nil {
+	if g.reader.comic == nil {
 		g.progress.SetText("Sin cómic abierto")
 		g.prevButton.Disable()
 		g.nextButton.Disable()
@@ -260,12 +206,12 @@ func (g *gutterApp) updateControls() {
 		return
 	}
 
-	total := len(g.comic.Pages)
-	if g.pageIndex < 0 || g.pageIndex >= total {
-		g.pageIndex = 0
+	total := len(g.reader.comic.Pages)
+	if g.reader.pageIndex < 0 || g.reader.pageIndex >= total {
+		g.reader.pageIndex = 0
 	}
 
-	if g.loading {
+	if g.reader.loading {
 		scanned := int(g.readScanned.Load())
 		readTotal := int(g.readTotal.Load())
 		if scanned > 0 && readTotal > 0 {
@@ -276,7 +222,7 @@ func (g *gutterApp) updateControls() {
 		} else {
 			g.progress.SetText(fmt.Sprintf(
 				"Cargando página %d de %d… · Esc para cancelar",
-				g.pageIndex+1, total,
+				g.reader.pageIndex+1, total,
 			))
 		}
 		g.prevButton.Disable()
@@ -285,28 +231,26 @@ func (g *gutterApp) updateControls() {
 		return
 	}
 
-	progress := fmt.Sprintf("Página %d de %d", g.pageIndex+1, total)
+	progress := fmt.Sprintf("Página %d de %d", g.reader.pageIndex+1, total)
 	if g.pageFailed {
 		progress += "  ·  error"
-	} else if g.singlePage && g.spread {
-		progress += fmt.Sprintf("  ·  %d/2", g.half+1)
+	} else if g.reader.singlePage && g.reader.spread {
+		progress += fmt.Sprintf("  ·  %d/2", g.reader.half+1)
 	}
 	g.progress.SetText(progress)
 
-	canPrev := g.pageIndex > 0 || (g.singlePage && g.spread && g.half == 1)
-	canNext := g.pageIndex < total-1 || (g.singlePage && g.spread && g.half == 0)
-	toggleEnabled(g.prevButton, canPrev)
-	toggleEnabled(g.nextButton, canNext)
+	toggleEnabled(g.prevButton, g.reader.canGoBack())
+	toggleEnabled(g.nextButton, g.reader.canGoForward())
 
 	g.updateZoomLabel()
 }
 
 // updateZoomLabel refresca el indicador de porcentaje de zoom.
 func (g *gutterApp) updateZoomLabel() {
-	if g.zoomFit {
+	if g.reader.zoomFit {
 		g.zoomLabel.SetText("Ajuste")
 	} else {
-		pct := int(g.zoomScale * 100)
+		pct := int(g.reader.zoomScale * 100)
 		g.zoomLabel.SetText(fmt.Sprintf("%d %%", pct))
 	}
 }

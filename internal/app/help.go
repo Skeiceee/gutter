@@ -12,8 +12,10 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
+	fyneTheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"gutter/internal/associate"
+	"gutter/internal/version"
 )
 
 // installMenu crea el menú nativo de la ventana. Los atajos con Ctrl se
@@ -39,44 +41,47 @@ func (g *gutterApp) installMenu() {
 		salirItem,
 	)
 
+	preferencesItem := fyne.NewMenuItem("Preferencias…", func() { g.showSettings(settingsTabReading) })
+	preferencesItem.Shortcut = &desktop.CustomShortcut{KeyName: fyne.KeyComma, Modifier: fyne.KeyModifierControl}
+
+	singlePageItem := fyne.NewMenuItem("Modo una página", func() {
+		g.setSinglePage(!g.reader.singlePage)
+	})
+	singlePageItem.Checked = g.reader.singlePage
+
+	westernItem := fyne.NewMenuItem("Dirección: Occidental (I→D)", func() {
+		g.setReadingDirection(false)
+	})
+	westernItem.Checked = !g.reader.manga
+
+	mangaItem := fyne.NewMenuItem("Dirección: Manga (D→I)", func() {
+		g.setReadingDirection(true)
+	})
+	mangaItem.Checked = g.reader.manga
+
 	viewItems := []*fyne.MenuItem{
 		fyne.NewMenuItem("Modo limpio (F11)", g.toggleCleanMode),
 		fyne.NewMenuItem("Rejilla de páginas (M)", g.toggleThumbnailGrid),
 		fyne.NewMenuItem("Ir a página… (G)", g.openGotoPage),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Modo una página", func() {
-			g.singlePage = !g.singlePage
-			g.half = 0
-			g.showPage()
-			g.unfocus()
-		}),
-		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Dirección: Occidental (I→D)", func() {
-			g.manga = false
-			g.half = 0
-			g.showPage()
-			g.unfocus()
-		}),
-		fyne.NewMenuItem("Dirección: Manga (D→I)", func() {
-			g.manga = true
-			g.half = 0
-			g.showPage()
-			g.unfocus()
-		}),
+		singlePageItem,
+		westernItem,
+		mangaItem,
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Ajustar al ancho (0)", g.fitWidth),
 		fyne.NewMenuItem("Zoom 100 % (1)", g.zoom100),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Opciones de lectura…", g.showReadingOptions),
+		preferencesItem,
 	}
 
 	translationItems := []*fyne.MenuItem{
 		fyne.NewMenuItem("Traducir / ocultar página (T)", g.toggleTranslation),
-		fyne.NewMenuItem("Configuración de OCR y traducción…", g.showTranslationSettings),
+		fyne.NewMenuItem("Preferencias de OCR y traducción…", func() { g.showSettings(settingsTabTranslation) }),
 	}
 
 	helpItems := []*fyne.MenuItem{
 		fyne.NewMenuItem("Atajos de teclado…", g.showHelp),
+		fyne.NewMenuItem("Buscar actualizaciones…", func() { g.checkForUpdates(false) }),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Acerca de Gutter", g.showAbout),
 	}
@@ -97,6 +102,11 @@ func (g *gutterApp) showAbout() {
 	logo.SetMinSize(fyne.NewSize(260, 100))
 
 	title := widget.NewLabelWithStyle("Gutter", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	versionLabel := widget.NewLabelWithStyle(
+		"Versión "+version.Detail(),
+		fyne.TextAlignCenter,
+		fyne.TextStyle{Bold: true},
+	)
 	description := widget.NewLabelWithStyle(
 		"Lector de cómics .cbr/.cbz de código abierto.\n"+
 			"RAR v4/v5 y ZIP con descompresión selectiva, caché LRU y progreso persistente.",
@@ -105,55 +115,39 @@ func (g *gutterApp) showAbout() {
 	)
 	description.Wrapping = fyne.TextWrapWord
 
-	statsLabel := widget.NewLabel(g.cacheSummary())
-	statsLabel.Wrapping = fyne.TextWrapWord
-
-	status := widget.NewLabel("")
-	status.Importance = widget.LowImportance
-
-	limitSelect := widget.NewSelect(diskLimitLabels, nil)
-	limitSelect.SetSelected(diskLimitLabel(g.diskLimitMB()))
-	limitSelect.OnChanged = func(label string) {
-		mb := parseDiskLimit(label)
-		if g.prefs != nil {
-			g.prefs.SetInt(prefDiskCacheLimitMB, mb)
-		}
-		if g.diskCache != nil {
-			g.diskCache.SetLimit(int64(mb) << 20)
-		}
-		statsLabel.SetText(g.cacheSummary())
-	}
-
-	clearButton := widget.NewButton("Vaciar caché", func() {
-		g.clearCaches()
-		statsLabel.SetText(g.cacheSummary())
-		status.SetText("Caché vaciada.")
+	websiteButton := widget.NewButton("Sitio web", func() { g.openURL(websiteURL) })
+	repositoryButton := widget.NewButton("Repositorio", func() { g.openURL(repositoryURL) })
+	updateButton := widget.NewButtonWithIcon("Buscar actualizaciones", fyneTheme.ViewRefreshIcon(), func() {
+		g.checkForUpdates(false)
 	})
-	clearButton.Importance = widget.LowImportance
+	updateButton.Importance = widget.HighImportance
 
-	cacheControls := container.NewBorder(
-		nil, nil,
-		widget.NewLabel("Límite de disco:"),
-		nil,
-		limitSelect,
+	links := container.NewGridWithColumns(
+		2,
+		websiteButton,
+		repositoryButton,
 	)
 
 	content := container.NewVBox(
 		container.NewCenter(logo),
 		container.NewCenter(title),
+		versionLabel,
 		description,
 		widget.NewSeparator(),
-		sectionLabel("Caché y memoria"),
-		statsLabel,
-		cacheControls,
-		container.NewCenter(clearButton),
-		status,
+		links,
+		container.NewCenter(updateButton),
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle(
+			"Caché, lectura, traducción e interfaz se ajustan en Preferencias (Ctrl+,).",
+			fyne.TextAlignCenter,
+			fyne.TextStyle{Italic: true},
+		),
 	)
 
 	scroll := container.NewVScroll(content)
-	scroll.SetMinSize(fyne.NewSize(460, 360))
+	scroll.SetMinSize(fyne.NewSize(460, 340))
 	d := dialog.NewCustom("Acerca de Gutter", "Cerrar", scroll, g.window)
-	d.Resize(fyne.NewSize(540, 520))
+	d.Resize(fyne.NewSize(540, 500))
 	g.showDialog(d)
 }
 

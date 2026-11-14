@@ -74,14 +74,14 @@ func (g *gutterApp) loadComic(comicPath, pageName string) {
 		return
 	}
 
-	oldComic := g.comic
-	g.comic = comic
+	oldComic := g.reader.comic
+	g.reader.comic = comic
 
 	g.restoreProgress(comic)
 	if pageName != "" {
 		if index := indexOfPage(comic.Pages, pageName); index >= 0 {
-			g.pageIndex = index
-			g.half = 0
+			g.reader.pageIndex = index
+			g.reader.half = 0
 		}
 	}
 
@@ -125,11 +125,11 @@ func (g *gutterApp) cancelPageWork() {
 
 // cancelLoading cancela la carga en curso y restaura la página mostrada.
 func (g *gutterApp) cancelLoading() {
-	if !g.loading {
+	if !g.reader.loading {
 		return
 	}
 	g.cancelPageWork()
-	g.loading = false
+	g.reader.loading = false
 	g.readScanned.Store(0)
 	g.readTotal.Store(0)
 	g.clearPageError()
@@ -137,15 +137,7 @@ func (g *gutterApp) cancelLoading() {
 		g.scroll.Show()
 	}
 
-	if g.shownComic == g.comic {
-		g.pageIndex = g.shownPage
-		g.half = g.shownHalf
-		g.spread = g.shownSpread
-	} else {
-		g.pageIndex = 0
-		g.half = 0
-		g.spread = false
-	}
+	g.reader.restoreShown()
 	g.updateControls()
 	g.unfocus()
 }

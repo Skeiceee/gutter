@@ -259,17 +259,17 @@ func (g *gutterApp) toggleThumbnailGrid() {
 // real del scroll no está lista hasta el siguiente frame, así que una pequeña
 // espera programa el centrado y la carga de la zona visible.
 func (g *gutterApp) showThumbnailGrid() {
-	if g.comic == nil || len(g.comic.Pages) == 0 || g.gridOpen || g.loading {
+	if g.reader.comic == nil || len(g.reader.comic.Pages) == 0 || g.gridOpen || g.reader.loading {
 		return
 	}
 	g.hideActiveDialog()
 	g.closeGotoPage()
 
 	g.gridOpen = true
-	g.gridComic = g.comic
+	g.gridComic = g.reader.comic
 	g.gridThumbSize = g.gridThumbSizePref()
 	g.gridThumbRender = g.gridThumbnailRenderSize()
-	g.gridSelection = clampInt(g.pageIndex, 0, len(g.comic.Pages)-1)
+	g.gridSelection = clampInt(g.reader.pageIndex, 0, len(g.reader.comic.Pages)-1)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	g.gridCtx = ctx
@@ -277,12 +277,12 @@ func (g *gutterApp) showThumbnailGrid() {
 	seq := g.gridSeq.Add(1)
 
 	cellSize := gridCellSize(g.gridThumbSize)
-	g.gridCells = make([]*thumbnailCell, len(g.comic.Pages))
-	g.gridLoaded = make([]bool, len(g.comic.Pages))
-	g.gridFailed = make([]bool, len(g.comic.Pages))
-	g.gridLoading = make([]bool, len(g.comic.Pages))
-	objects := make([]fyne.CanvasObject, len(g.comic.Pages))
-	for i, name := range g.comic.Pages {
+	g.gridCells = make([]*thumbnailCell, len(g.reader.comic.Pages))
+	g.gridLoaded = make([]bool, len(g.reader.comic.Pages))
+	g.gridFailed = make([]bool, len(g.reader.comic.Pages))
+	g.gridLoading = make([]bool, len(g.reader.comic.Pages))
+	objects := make([]fyne.CanvasObject, len(g.reader.comic.Pages))
+	for i, name := range g.reader.comic.Pages {
 		cell := newThumbnailCell(i, name, cellSize, g.tapGridCell)
 		cell.SetSelected(i == g.gridSelection)
 		g.gridCells[i] = cell
@@ -290,7 +290,7 @@ func (g *gutterApp) showThumbnailGrid() {
 	}
 
 	title := widget.NewLabelWithStyle("Rejilla de páginas", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	count := widget.NewLabel(fmt.Sprintf("%d páginas", len(g.comic.Pages)))
+	count := widget.NewLabel(fmt.Sprintf("%d páginas", len(g.reader.comic.Pages)))
 	count.Importance = widget.LowImportance
 	closeButton := widget.NewButtonWithIcon("Cerrar", theme.CancelIcon(), g.hideThumbnailGrid)
 	closeButton.Importance = widget.LowImportance
@@ -382,7 +382,7 @@ func (g *gutterApp) tapGridCell(index int) {
 }
 
 func (g *gutterApp) jumpFromGrid() {
-	if !g.gridOpen || g.comic == nil {
+	if !g.gridOpen || g.reader.comic == nil {
 		return
 	}
 	index := g.gridSelection

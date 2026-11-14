@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows amd64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc
+
+      - name: Compilar Gutter.exe
+        run: |
+          $env:Path = "C:\msys64\mingw64\bin;$env:Path"
+          $env:CGO_ENABLED = "1"
+          $env:CC = "gcc"
+          go build -trimpath -ldflags="-s -w -H windowsgui -X gutter/internal/version.Version=${{ github.ref_name }}" -o Gutter.exe .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: Gutter.exe
+
+  linux:
+    name: Linux amd64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Dependencias de Fyne/OpenGL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libxkbcommon-dev
+
+      - name: Compilar
+        env:
+          CGO_ENABLED: "1"
+        run: go build -trimpath -ldflags "-s -w -X gutter/internal/version.Version=${{ github.ref_name }}" -o gutter-linux-amd64 .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: gutter-linux-amd64
+
+  macos:
+    name: macOS arm64
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Compilar
+        env:
+          CGO_ENABLED: "1"
+        run: go build -trimpath -ldflags "-s -w -X gutter/internal/version.Version=${{ github.ref_name }}" -o gutter-darwin-arm64 .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: gutter-darwin-arm64
+
+  publish:
+    name: Publicar release
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Crear release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/Gutter.exe
+            dist/gutter-linux-amd64
+            dist/gutter-darwin-arm64

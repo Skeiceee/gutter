@@ -115,7 +115,7 @@ func (g *gutterApp) updatePageBadge() {
 	if g.pageBadge == nil {
 		return
 	}
-	if !g.cleanMode || g.comic == nil || len(g.comic.Pages) == 0 {
+	if !g.showPageBadgePref() || !g.reader.cleanMode || g.reader.comic == nil || len(g.reader.comic.Pages) == 0 {
 		g.pageBadge.Hide()
 		if g.pageBadgeOverlay != nil {
 			g.pageBadgeOverlay.Refresh()
@@ -123,7 +123,7 @@ func (g *gutterApp) updatePageBadge() {
 		return
 	}
 
-	text := fmt.Sprintf("Página %d / %d", g.pageIndex+1, len(g.comic.Pages))
+	text := fmt.Sprintf("Página %d / %d", g.reader.pageIndex+1, len(g.reader.comic.Pages))
 	g.pageBadge.SetText(text)
 	g.pageBadge.Show()
 	if g.pageBadgeOverlay != nil {
@@ -133,7 +133,7 @@ func (g *gutterApp) updatePageBadge() {
 
 // openGotoPage inicia el modo de salto rápido: G, dígitos y Enter.
 func (g *gutterApp) openGotoPage() {
-	if g.comic == nil || len(g.comic.Pages) == 0 || g.loading {
+	if g.reader.comic == nil || len(g.reader.comic.Pages) == 0 || g.reader.loading {
 		return
 	}
 	g.gotoMode = true
@@ -162,8 +162,8 @@ func (g *gutterApp) updateGotoBadge() {
 	}
 
 	total := 0
-	if g.comic != nil {
-		total = len(g.comic.Pages)
+	if g.reader.comic != nil {
+		total = len(g.reader.comic.Pages)
 	}
 
 	var text string
@@ -226,13 +226,13 @@ func (g *gutterApp) commitGotoPage() {
 		g.closeGotoPage()
 		return
 	}
-	if g.comic == nil {
+	if g.reader.comic == nil {
 		g.closeGotoPage()
 		return
 	}
 
 	page, err := strconv.Atoi(g.gotoBuffer)
-	total := len(g.comic.Pages)
+	total := len(g.reader.comic.Pages)
 	if err != nil || page < 1 || page > total {
 		g.gotoBuffer = ""
 		g.gotoError = fmt.Sprintf("Página no válida · 1–%d", total)
