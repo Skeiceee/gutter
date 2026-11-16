@@ -133,7 +133,7 @@ func (g *gutterApp) updatePageBadge() {
 
 // openGotoPage inicia el modo de salto rápido: G, dígitos y Enter.
 func (g *gutterApp) openGotoPage() {
-	if g.reader.comic == nil || len(g.reader.comic.Pages) == 0 || g.reader.loading {
+	if g.reader.comic == nil || len(g.reader.comic.Pages) == 0 || g.reader.loading || g.opening {
 		return
 	}
 	g.gotoMode = true

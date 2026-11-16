@@ -259,7 +259,7 @@ func (g *gutterApp) toggleThumbnailGrid() {
 // real del scroll no está lista hasta el siguiente frame, así que una pequeña
 // espera programa el centrado y la carga de la zona visible.
 func (g *gutterApp) showThumbnailGrid() {
-	if g.reader.comic == nil || len(g.reader.comic.Pages) == 0 || g.gridOpen || g.reader.loading {
+	if g.reader.comic == nil || len(g.reader.comic.Pages) == 0 || g.gridOpen || g.reader.loading || g.opening {
 		return
 	}
 	g.hideActiveDialog()
@@ -271,7 +271,7 @@ func (g *gutterApp) showThumbnailGrid() {
 	g.gridThumbRender = g.gridThumbnailRenderSize()
 	g.gridSelection = clampInt(g.reader.pageIndex, 0, len(g.reader.comic.Pages)-1)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(g.baseContext())
 	g.gridCtx = ctx
 	g.gridCancel = cancel
 	seq := g.gridSeq.Add(1)

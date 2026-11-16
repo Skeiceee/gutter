@@ -39,41 +39,84 @@ func (g *gutterApp) hideActiveDialog() {
 	}
 }
 
-// openFile abre el diálogo para seleccionar un cómic .cbr/.cbz.
+// openFile abre el diálogo para seleccionar un cómic .cbr/.cbz. Pasa por
+// showDialog para que pulsar Ctrl+O varias veces no apile ventanas modales.
 func (g *gutterApp) openFile() {
 	filter := storage.NewExtensionFileFilter([]string{".cbr", ".cbz"})
-	dialog := dialog.NewFileOpen(func(uc fyne.URIReadCloser, err error) {
+	d := dialog.NewFileOpen(func(uc fyne.URIReadCloser, err error) {
 		if err != nil || uc == nil {
 			return
 		}
 		g.LoadComic(uc.URI().Path())
 	}, g.window)
-	dialog.SetFilter(filter)
-	dialog.Resize(fyne.NewSize(880, 680))
-	dialog.Show()
+	d.SetFilter(filter)
+	d.Resize(fyne.NewSize(880, 680))
+	g.showDialog(d)
 }
 
 // loadComic abre un archivo .cbr/.cbz y lo prepara para lectura. Si pageName
 // no está vacío, intenta colocarse en esa página después de restaurar el
 // progreso; es lo que usa el cambio de opciones de orden.
+//
+// El indexado se hace en segundo plano: un archivo grande puede tardar y no
+// debe congelar la ventana. Mientras tanto se mantiene el cómic anterior en
+// pantalla y la barra inferior muestra "Abriendo cómic…". Cada apertura lleva
+// un número de secuencia: si el usuario abre otro archivo antes de que termine,
+// el resultado viejo se descarta y se cierra el cómic que ya no se usa.
 func (g *gutterApp) loadComic(comicPath, pageName string) {
+	comicPath = normalizeComicPath(comicPath)
 	if comicPath == "" {
 		return
 	}
 
 	g.hideThumbnailGrid()
 	g.cancelPageWork()
+	g.cancelTranslation()
 	g.clearPageError()
-	seq := g.pageSeq.Add(1)
 
-	// Se abre el nuevo cómic antes de cerrar el actual: si el archivo está
-	// dañado, el usuario conserva la lectura que ya tenía en pantalla.
-	comic, err := backend.OpenComicWithOptions(comicPath, g.openOptions())
+	// La carga de página anterior quedó cancelada y su goroutine ya no va a
+	// actualizar el estado: se descarta el marcador de "cargando".
+	g.reader.loading = false
+	g.readScanned.Store(0)
+	g.readTotal.Store(0)
+
+	seq := g.openSeq.Add(1)
+	g.opening = true
+	g.updateControls()
+
+	opts := g.openOptions()
+	go func() {
+		comic, err := backend.OpenComicWithOptions(comicPath, opts)
+		fyne.Do(func() {
+			// Otra apertura más reciente (o el cierre de la ventana) invalida
+			// este resultado.
+			if seq != g.openSeq.Load() || g.baseContext().Err() != nil {
+				if comic != nil {
+					// Cerrar puede esperar a la caché en disco: fuera del hilo
+					// de UI.
+					go func() { _ = comic.Close() }()
+				}
+				return
+			}
+			g.finishOpening(comic, err, pageName)
+		})
+	}()
+}
+
+// finishOpening instala el cómic ya indexado. Se ejecuta en el hilo de UI,
+// después de comprobar que la apertura sigue siendo la vigente.
+func (g *gutterApp) finishOpening(comic *backend.Comic, err error, pageName string) {
+	g.opening = false
+
 	if err != nil {
-		g.reportOpenError(seq, err)
+		g.updateControls()
+		g.hideActiveDialog()
+		dialog.ShowError(fmt.Errorf("No se pudo abrir el cómic.\n\n%w", err), g.window)
 		return
 	}
 
+	// Se instala el nuevo cómic antes de cerrar el actual: así, si algo falla
+	// al dibujar la primera página, el usuario conserva lo que ya tenía.
 	oldComic := g.reader.comic
 	g.reader.comic = comic
 
@@ -85,12 +128,13 @@ func (g *gutterApp) loadComic(comicPath, pageName string) {
 		}
 	}
 
-	if oldComic != nil {
-		_ = oldComic.Close()
+	if oldComic != nil && oldComic != comic {
+		// Cerrar puede esperar a las escrituras de caché y a un prefetch en
+		// vuelo: se hace fuera del hilo de UI.
+		go func() { _ = oldComic.Close() }()
 	}
 
 	g.showPage()
-	g.window.SetTitle(fmt.Sprintf("%s — %s", appTitle, filepath.Base(comicPath)))
 
 	if problems := comic.Problems(); len(problems) > 0 {
 		g.showIntegrityWarning(problems)
@@ -123,8 +167,16 @@ func (g *gutterApp) cancelPageWork() {
 	}
 }
 
-// cancelLoading cancela la carga en curso y restaura la página mostrada.
+// cancelLoading cancela la apertura o la carga en curso. Si estaba abriendo un
+// cómic, el resultado en vuelo se descarta y se conserva el que ya había.
 func (g *gutterApp) cancelLoading() {
+	if g.opening {
+		g.openSeq.Add(1)
+		g.opening = false
+		g.updateControls()
+		g.unfocus()
+		return
+	}
 	if !g.reader.loading {
 		return
 	}

@@ -29,6 +29,16 @@ type gutterApp struct {
 	pageSeq atomic.Uint64
 	openSeq atomic.Uint64
 
+	// appCtx es el contexto raíz del ciclo de vida de la ventana. Todo el
+	// trabajo en segundo plano (página, prefetch, rejilla, traducción y
+	// actualizaciones) cuelga de él y se cancela al cerrar.
+	appCtx    context.Context
+	appCancel context.CancelFunc
+
+	// opening es true mientras se indexa un cómic en segundo plano. Bloquea la
+	// navegación y una segunda apertura, y sustituye el progreso de página.
+	opening bool
+
 	// Cancelación de la carga actual y del prefetch. Son contextos separados
 	// para que el prefetch no herede el callback de progreso de la página.
 	pageCancel     context.CancelFunc
@@ -118,6 +128,9 @@ type gutterApp struct {
 	translating        bool
 	translationCache   map[string]*ocr.PageTranslation
 	translateSeq       atomic.Uint64
+	// translateCancel detiene el OCR y las peticiones de red de la traducción
+	// en curso cuando el usuario cambia de página o cierra la ventana.
+	translateCancel context.CancelFunc
 
 	// Estado de zoom. zoomFit mide la página al ancho disponible; en modo
 	// manual, zoomScale es la escala absoluta (1 = píxel de imagen = unidad Fyne).
@@ -132,6 +145,7 @@ func NewGutterApp(a fyne.App) *gutterApp {
 		reader: newReaderState(),
 		prefs:  a.Preferences(),
 	}
+	g.appCtx, g.appCancel = context.WithCancel(context.Background())
 	g.recents = loadRecents(g.prefs)
 	g.diskCache = newAppDiskCache(a, g.prefs)
 
@@ -250,12 +264,9 @@ func NewGutterApp(a fyne.App) *gutterApp {
 	// Arrastrar y soltar un .cbr/.cbz sobre la ventana.
 	g.window.SetOnDropped(g.handleDropped)
 
-	// Guardar progreso y tamaño de ventana antes de destruirla.
-	g.window.SetOnClosed(func() {
-		g.cancelPageWork()
-		g.saveCurrentProgress()
-		g.saveWindowSize()
-	})
+	// Guardar progreso y tamaño de ventana antes de destruirla, y detener todo
+	// el trabajo en segundo plano que aún esté vivo.
+	g.window.SetOnClosed(g.shutdown)
 
 	// Handler de teclado a nivel de ventana. Fyne lo invoca cuando ningún
 	// widget con foco ha consumido la tecla.
@@ -329,4 +340,44 @@ func (g *gutterApp) FitWindowToPrimaryScreen() {
 // Run muestra la ventana y lanza el bucle de eventos de Fyne.
 func (g *gutterApp) Run() {
 	g.window.ShowAndRun()
+}
+
+// baseContext devuelve el contexto raíz del ciclo de vida de la ventana. Las
+// pruebas construyen gutterApp sin ventana, así que se degrada a Background.
+func (g *gutterApp) baseContext() context.Context {
+	if g.appCtx != nil {
+		return g.appCtx
+	}
+	return context.Background()
+}
+
+// shutdown detiene todo el trabajo en segundo plano antes de destruir la
+// ventana: aperturas, cargas de página, prefetch, rejilla, traducción y
+// comprobación de actualizaciones. Después guarda el progreso y el tamaño.
+func (g *gutterApp) shutdown() {
+	// Invalida la apertura en curso para que su resultado no se instale en un
+	// lector que ya se está cerrando.
+	g.openSeq.Add(1)
+	g.opening = false
+
+	g.cancelPageWork()
+	g.cancelTranslation()
+	if g.appCancel != nil {
+		g.appCancel()
+	}
+
+	g.saveCurrentProgress()
+	g.saveWindowSize()
+	g.closeComic()
+}
+
+// closeComic suelta el archivo actual. Close cancela primero el trabajo en
+// vuelo, así que la espera por disco o por un RAR sólido es corta.
+func (g *gutterApp) closeComic() {
+	comic := g.reader.comic
+	if comic == nil {
+		return
+	}
+	g.reader.comic = nil
+	_ = comic.Close()
 }

@@ -4,6 +4,42 @@ Todas las versiones publicadas de Gutter, con los cambios más visibles para
 quien usa el lector. El ejecutable de cada versión está en
 [Releases](https://github.com/Skeiceee/gutter/releases).
 
+## v1.3.1 — 2026-11-16
+
+Versión de robustez: evita cuelgues y consumo desmedido de memoria con
+archivos grandes o dañados, y hace que la apertura y la traducción respondan
+siempre a la ventana.
+
+### Robustez
+
+- **Límite de píxeles decodificados**: antes de decodificar una página o una
+  miniatura se lee su cabecera y se rechazan las imágenes que declaran más de
+  100 megapíxeles. Un PNG de pocos KB con dimensiones absurdas ya no puede
+  intentar reservar decenas de GB y tumbar el proceso.
+
+### Cancelación
+
+- **Un único contexto para la ventana**: página, precarga, rejilla, traducción
+  y comprobación de actualizaciones se cancelan de verdad al cerrar.
+- **RAR sólido**: `Comic.Close()` espera también los recorridos secuenciales de
+  precarga y miniaturas, así que ninguna lectura sigue viva sobre un archivo ya
+  cerrado.
+- **Traducción cancelable**: el OCR y las peticiones de red se cortan al cambiar
+  de página, en lugar de seguir trabajando hasta tres minutos después.
+
+### Apertura
+
+- **Indexado en segundo plano**: abrir un `.cbr`/`.cbz` grande ya no congela la
+  ventana. La barra inferior muestra «Abriendo cómic…» y `Esc` cancela.
+- Si la apertura falla, o se abre otro archivo antes de que termine, el cómic
+  que ya estaba en pantalla se conserva.
+
+### Interfaz
+
+- **Diálogos únicos**: pulsar `Ctrl+O` varias veces ya no apila ventanas.
+- Cada apertura lleva un número de secuencia: los resultados obsoletos se
+  descartan y su archivo se cierra.
+
 ## v1.3.0 — 2026-11-14
 
 ### Preferencias unificadas

@@ -38,7 +38,7 @@ func (g *gutterApp) toggleTranslation() {
 		dialog.ShowInformation("Traducción", "Abre un cómic para traducir una página.", g.window)
 		return
 	}
-	if g.reader.loading || g.translating {
+	if g.reader.loading || g.translating || g.opening {
 		return
 	}
 	if g.translationVisible {
@@ -63,15 +63,21 @@ func (g *gutterApp) startTranslation() {
 	g.translating = true
 	g.progress.SetText("OCR + traducción…")
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		defer cancel()
+	// El contexto cuelga del ciclo de vida de la ventana y se guarda para
+	// cancelarlo al cambiar de página: sin esto, un OCR o una petición de red
+	// lenta seguía trabajando hasta tres minutos después de irse de la página.
+	ctx, cancel := context.WithTimeout(g.baseContext(), 3*time.Minute)
+	g.translateCancel = cancel
 
+	go func() {
 		result, err := ocr.BuildPageTranslation(ctx, img, cfg)
 		fyne.Do(func() {
 			if seq != g.translateSeq.Load() {
+				cancel()
 				return // la página cambió mientras se procesaba
 			}
+			cancel()
+			g.translateCancel = nil
 			g.translating = false
 			g.updateControls()
 			if err != nil {
@@ -126,6 +132,18 @@ func (g *gutterApp) showTranslation(result *ocr.PageTranslation) {
 	g.translationImage.Show()
 	g.translationVisible = true
 	g.pageCanvas.Refresh()
+}
+
+// cancelTranslation invalida el resultado en vuelo y detiene el OCR y las
+// peticiones de red pendientes. Se llama al cambiar de página, al abrir otro
+// cómic y al cerrar la ventana.
+func (g *gutterApp) cancelTranslation() {
+	g.translateSeq.Add(1)
+	g.translating = false
+	if g.translateCancel != nil {
+		g.translateCancel()
+		g.translateCancel = nil
+	}
 }
 
 func (g *gutterApp) clearTranslation() {

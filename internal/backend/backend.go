@@ -55,6 +55,12 @@ const (
 	// un tamaño desmesurado. Una página de cómic rara vez supera los 256 MiB.
 	maxPageBytes int64 = 256 << 20
 
+	// maxPagePixels acota los píxeles que puede declarar una imagen. maxPageBytes
+	// limita el tamaño comprimido, pero un PNG de 20 KB puede declarar
+	// 100 000 × 100 000 píxeles: el decodificador reservaría ~40 GB de RGBA y
+	// tumbaría el proceso. 100 MP cubre con holgura un escaneo a doble página.
+	maxPagePixels int64 = 100_000_000
+
 	// defaultThumbCacheBudget es independiente de la caché de páginas: las
 	// miniaturas son pequeñas y no deben desplazar la página que se está
 	// leyendo ni las páginas precargadas.
@@ -117,7 +123,18 @@ type Comic struct {
 	inflight map[string]*loadCall
 	loadWG   sync.WaitGroup
 	diskWG   sync.WaitGroup
-	closed   bool
+	// scanWG cuenta los recorridos secuenciales de un RAR sólido (prefetch y
+	// miniaturas). No pasan por loadWG porque abren su propio lector, pero Close
+	// debe esperarlos igualmente antes de dar el cómic por cerrado.
+	scanWG sync.WaitGroup
+
+	// lifeCtx se cancela en Close. Los recorridos secuenciales lo combinan con
+	// el contexto del llamador para que un cierre corte la lectura aunque quien
+	// la pidió no haya cancelado nada.
+	lifeCtx    context.Context
+	lifeCancel context.CancelFunc
+
+	closed bool
 }
 
 // loadCall permite que dos goroutines que piden la misma página compartan una
@@ -331,14 +348,17 @@ func (c *Comic) restoreZIPIndex(entry *indexCacheEntry) bool {
 
 func newComicWithOptions(comicPath string, opts OpenOptions) *Comic {
 	opts = normalizeOpenOptions(opts)
+	lifeCtx, lifeCancel := context.WithCancel(context.Background())
 	return &Comic{
-		Path:     comicPath,
-		opts:     opts,
-		rarFiles: make(map[string]*rardecode.File),
-		zipFiles: make(map[string]*zip.File),
-		cache:    newPageCache(defaultPageCacheBudget),
-		thumbs:   newPageCache(defaultThumbCacheBudget),
-		inflight: make(map[string]*loadCall),
+		Path:       comicPath,
+		opts:       opts,
+		rarFiles:   make(map[string]*rardecode.File),
+		zipFiles:   make(map[string]*zip.File),
+		cache:      newPageCache(defaultPageCacheBudget),
+		thumbs:     newPageCache(defaultThumbCacheBudget),
+		inflight:   make(map[string]*loadCall),
+		lifeCtx:    lifeCtx,
+		lifeCancel: lifeCancel,
 	}
 }
 
@@ -397,15 +417,50 @@ func (c *Comic) Close() error {
 	for _, call := range c.inflight {
 		call.cancel()
 	}
+	if c.lifeCancel != nil {
+		c.lifeCancel()
+	}
 	c.mu.Unlock()
 
 	c.loadWG.Wait()
+	c.scanWG.Wait()
 	c.diskWG.Wait()
 
 	if c.zipFile != nil {
 		return c.zipFile.Close()
 	}
 	return nil
+}
+
+// beginScan registra un recorrido secuencial en curso. Devuelve false si el
+// cómic ya está cerrado. El Add se hace con c.mu tomado, igual que el cierre,
+// para que Close nunca empiece a esperar antes de que el WaitGroup lo cuente.
+func (c *Comic) beginScan() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return false
+	}
+	c.scanWG.Add(1)
+	return true
+}
+
+// scanContext vincula el contexto del llamador con la vida del cómic: si Close
+// cancela lifeCtx, el recorrido secuencial se detiene aunque quien lo pidió no
+// haya cancelado su contexto.
+func (c *Comic) scanContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	if c.lifeCtx == nil {
+		return ctx, cancel
+	}
+	stop := context.AfterFunc(c.lifeCtx, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
 }
 
 // ReadComicIndex devuelve los nombres de las imágenes internas ordenados.
@@ -519,7 +574,7 @@ func (c *Comic) ThumbnailContext(ctx context.Context, imageName string, maxSize 
 		if err != nil {
 			return nil, err
 		}
-		src, _, err := image.Decode(bytes.NewReader(data))
+		src, err := decodeImage(data, imageName)
 		if err != nil {
 			return nil, fmt.Errorf("no se pudo decodificar %q para la miniatura: %w", imageName, err)
 		}
@@ -607,6 +662,14 @@ func (c *Comic) ThumbnailsContext(ctx context.Context, names []string, maxSize i
 // miniaturas pedidas. Las entradas que no interesan se descartan al avanzar,
 // sin decodificarlas.
 func (c *Comic) thumbnailsRARSequential(ctx context.Context, names []string, maxSize int, report func(string, *image.RGBA, error)) error {
+	if !c.beginScan() {
+		return errComicClosed
+	}
+	defer c.scanWG.Done()
+
+	ctx, cancel := c.scanContext(ctx)
+	defer cancel()
+
 	targets := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		targets[name] = struct{}{}
@@ -658,7 +721,7 @@ func (c *Comic) thumbnailsRARSequential(ctx context.Context, names []string, max
 			report(header.Name, nil, err)
 			continue
 		}
-		src, _, err := image.Decode(bytes.NewReader(data))
+		src, err := decodeImage(data, header.Name)
 		if err != nil {
 			report(header.Name, nil, fmt.Errorf("no se pudo decodificar %q para la miniatura: %w", header.Name, err))
 			continue
@@ -875,6 +938,14 @@ func (c *Comic) PrefetchContext(ctx context.Context, names []string) error {
 // prefetchRARSequential recorre un RAR sólido una vez y guarda todas las
 // páginas pedidas que encuentre. Evita repetir el recorrido por cada página.
 func (c *Comic) prefetchRARSequential(ctx context.Context, names []string) error {
+	if !c.beginScan() {
+		return errComicClosed
+	}
+	defer c.scanWG.Done()
+
+	ctx, cancel := c.scanContext(ctx)
+	defer cancel()
+
 	targets := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		targets[name] = struct{}{}
@@ -915,7 +986,7 @@ func (c *Comic) prefetchRARSequential(ctx context.Context, names []string) error
 			}
 			continue
 		}
-		src, _, err := image.Decode(bytes.NewReader(data))
+		src, err := decodeImage(data, header.Name)
 		if err != nil {
 			delete(targets, header.Name)
 			continue
@@ -1030,7 +1101,7 @@ func (c *Comic) loadPage(ctx context.Context, imageName string) (*image.RGBA, er
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	src, _, err := image.Decode(bytes.NewReader(data))
+	src, err := decodeImage(data, imageName)
 	if err != nil {
 		return nil, fmt.Errorf("no se pudo decodificar %q: %w", imageName, err)
 	}
@@ -1288,6 +1359,28 @@ func readAllLimited(ctx context.Context, r io.Reader, unpackedSize int64) ([]byt
 		return nil, fmt.Errorf("la imagen supera el límite de %d MiB", maxPageBytes>>20)
 	}
 	return data, nil
+}
+
+// decodeImage decodifica una entrada respetando maxPagePixels. Primero lee solo
+// la cabecera: así una imagen que declara dimensiones absurdas se rechaza antes
+// de que el decodificador reserve memoria para todos sus píxeles.
+func decodeImage(data []byte, name string) (image.Image, error) {
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return nil, fmt.Errorf("la imagen %q declara dimensiones no válidas (%dx%d)", name, cfg.Width, cfg.Height)
+	}
+	if pixels := int64(cfg.Width) * int64(cfg.Height); pixels > maxPagePixels {
+		return nil, fmt.Errorf(
+			"la imagen %q (%s) declara %dx%d píxeles, por encima del límite de %d megapíxeles",
+			name, format, cfg.Width, cfg.Height, maxPagePixels/1_000_000,
+		)
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(data))
+	return img, err
 }
 
 // toRGBA convierte cualquier image.Image a *image.RGBA con origen (0,0).

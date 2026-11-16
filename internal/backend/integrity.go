@@ -10,10 +10,8 @@ package backend
 
 import (
 	"archive/zip"
-	"bytes"
 	"errors"
 	"fmt"
-	"image"
 	"io"
 	"path/filepath"
 	"time"
@@ -87,7 +85,7 @@ func (c *Comic) checkZIPIntegrity(deadline time.Time, add func(name, detail stri
 			add(name, fmt.Sprintf("no se pudo leer la entrada: %v", err))
 			continue
 		}
-		if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
+		if _, err := decodeImage(data, name); err != nil {
 			add(name, fmt.Sprintf("la imagen no se puede decodificar: %v", err))
 		}
 	}
@@ -128,7 +126,7 @@ func (c *Comic) checkRARIntegrity(deadline time.Time, add func(name, detail stri
 			add(name, fmt.Sprintf("no se pudo leer la entrada: %v", err))
 			continue
 		}
-		if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
+		if _, err := decodeImage(data, name); err != nil {
 			add(name, fmt.Sprintf("la imagen no se puede decodificar: %v", err))
 		}
 	}

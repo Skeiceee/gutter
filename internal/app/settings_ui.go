@@ -327,8 +327,7 @@ func (g *gutterApp) applySettings(next settingsSnapshot) {
 	}
 
 	if oldTranslation != next.translation {
-		g.translateSeq.Add(1)
-		g.translating = false
+		g.cancelTranslation()
 		g.clearTranslation()
 	}
 	g.updatePageBadge()

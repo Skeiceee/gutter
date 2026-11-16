@@ -179,9 +179,14 @@ func (g *gutterApp) showPage() {
 	if g.reader.comic == nil {
 		return
 	}
-	// Invalida cualquier traducción en vuelo y retira la capa anterior.
-	g.translateSeq.Add(1)
-	g.translating = false
+	// Mientras se indexa otro cómic, la vista sigue mostrando el actual: no se
+	// lanza una carga nueva que nacería obsoleta.
+	if g.opening {
+		return
+	}
+	// Cancela cualquier traducción en vuelo (OCR y red) y retira la capa
+	// anterior: ya no corresponde a la página que se va a mostrar.
+	g.cancelTranslation()
 	g.clearTranslation()
 	g.clearPageError()
 	if g.pageImage.Image != nil {
@@ -203,7 +208,7 @@ func (g *gutterApp) showPage() {
 	g.readScanned.Store(0)
 	g.readTotal.Store(0)
 
-	pageCtx, pageCancel := context.WithCancel(context.Background())
+	pageCtx, pageCancel := context.WithCancel(g.baseContext())
 	g.pageCancel = pageCancel
 	pageCtx = backend.WithReadProgress(pageCtx, func(scanned, total int) {
 		g.readScanned.Store(int64(scanned))
@@ -217,7 +222,7 @@ func (g *gutterApp) showPage() {
 
 	// El prefetch tiene su propio contexto: se cancela al cambiar de página,
 	// pero no arrastra el callback de progreso de la página actual.
-	prefetchCtx, prefetchCancel := context.WithCancel(context.Background())
+	prefetchCtx, prefetchCancel := context.WithCancel(g.baseContext())
 	g.prefetchCancel = prefetchCancel
 
 	g.reader.loading = true
@@ -306,23 +311,6 @@ func (g *gutterApp) reportLoadError(seq uint64, ctx context.Context, err error) 
 	})
 }
 
-// reportOpenError mantiene el diálogo para los fallos al abrir un archivo:
-// en ese caso no hay una página concreta que sustituir por un marcador.
-func (g *gutterApp) reportOpenError(seq uint64, err error) {
-	if err == nil {
-		return
-	}
-	fyne.Do(func() {
-		if seq != g.pageSeq.Load() {
-			return
-		}
-		g.reader.loading = false
-		g.clearPageError()
-		g.updateControls()
-		dialog.ShowError(fmt.Errorf("No se pudo abrir el cómic.\n\n%w", err), g.window)
-	})
-}
-
 func (g *gutterApp) clearPageError() {
 	g.pageFailed = false
 	if g.pageErrorState != nil {
@@ -403,7 +391,7 @@ func (g *gutterApp) handleKey(event *fyne.KeyEvent) {
 	case fyne.KeyT:
 		g.toggleTranslation()
 	case fyne.KeyEscape:
-		if g.reader.loading {
+		if g.reader.loading || g.opening {
 			g.cancelLoading()
 			return
 		}

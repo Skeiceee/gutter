@@ -43,7 +43,7 @@ func (g *gutterApp) checkForUpdates(manual bool) {
 	g.updating = true
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(g.baseContext(), 15*time.Second)
 		defer cancel()
 
 		release, err := update.NewClient().Latest(ctx)

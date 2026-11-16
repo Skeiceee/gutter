@@ -198,6 +198,14 @@ func (g *gutterApp) updateControls() {
 	// no solo aparecer al entrar en modo limpio.
 	defer g.updatePageBadge()
 
+	if g.opening {
+		g.progress.SetText("Abriendo cómic… · Esc para cancelar")
+		g.prevButton.Disable()
+		g.nextButton.Disable()
+		g.updateZoomLabel()
+		return
+	}
+
 	if g.reader.comic == nil {
 		g.progress.SetText("Sin cómic abierto")
 		g.prevButton.Disable()

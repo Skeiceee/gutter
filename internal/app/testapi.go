@@ -75,6 +75,14 @@ func (t *TestApp) SetPrefBool(key string, value bool) { t.app.prefs.SetBool(key,
 func (t *TestApp) SetComic(c *backend.Comic) { t.app.reader.comic = c }
 func (t *TestApp) Comic() *backend.Comic     { return t.app.reader.comic }
 
+// LoadComic abre un cómic igual que la interfaz: el indexado ocurre en segundo
+// plano y la vista se actualiza cuando termina.
+func (t *TestApp) LoadComic(path string) { t.app.LoadComic(path) }
+
+// CloseComic suelta el archivo abierto, como hace la ventana al cerrarse. Sin
+// esto, los tests dejan descriptores abiertos y TempDir no puede borrar.
+func (t *TestApp) CloseComic() { t.app.closeComic() }
+
 func (t *TestApp) SetRecents(recents []RecentComic) { t.app.recents = recents }
 func (t *TestApp) Recents() []RecentComic           { return t.app.recents }
 func (t *TestApp) SetDiskCache(c *backend.DiskCache) {
@@ -103,6 +111,11 @@ func (t *TestApp) CleanMode() bool         { return t.app.reader.cleanMode }
 
 func (t *TestApp) SetLoading(loading bool) { t.app.reader.loading = loading }
 func (t *TestApp) Loading() bool           { return t.app.reader.loading }
+
+// SetOpening simula una apertura de cómic en segundo plano.
+func (t *TestApp) SetOpening(opening bool) { t.app.opening = opening }
+func (t *TestApp) Opening() bool           { return t.app.opening }
+func (t *TestApp) OpenSeq() uint64         { return t.app.openSeq.Load() }
 
 func (t *TestApp) SetReadProgress(scanned, total int64) {
 	t.app.readScanned.Store(scanned)
