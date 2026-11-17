@@ -4,6 +4,33 @@ Todas las versiones publicadas de Gutter, con los cambios más visibles para
 quien usa el lector. El ejecutable de cada versión está en
 [Releases](https://github.com/Skeiceee/gutter/releases).
 
+## v1.3.2 — 2026-11-16
+
+Versión de mantenimiento: reorganiza el motor de lectura y aligera el arranque
+sin cambiar la experiencia de lectura.
+
+### Arranque
+
+- **Caché de disco en segundo plano**: el recuento inicial de índices, páginas y
+  miniaturas ya no se hace en el hilo de UI. En instalaciones con miles de
+  archivos la ventana aparece antes.
+
+### Robustez
+
+- **Fuzzing de parsers**: nuevas pruebas de fuzzing para cabeceras de imagen, el
+  formato `.gtp` de la caché en disco y la detección/indexado de RAR/ZIP. Los
+  *seeds* se ejecutan en cada `go test`; el fuzzing real se lanza con `-fuzz`.
+- **Escaneo idempotente**: el recuento de la caché comparte mutex con las
+  escrituras, así que no puede duplicar contadores.
+
+### Interno
+
+- **Backend dividido por responsabilidad**: `backend.go` pasa de ~1.470 a ~240
+  líneas. El resto vive en `open.go` (contenedor), `page.go` (lectura y
+  decodificación), `load.go` (LRU y *single-flight*), `prefetch.go`,
+  `thumbnails.go`, `names.go` (filtros y orden) y `cache.go`, sin cambios de API
+  ni de comportamiento.
+
 ## v1.3.1 — 2026-11-16
 
 Versión de robustez: evita cuelgues y consumo desmedido de memoria con

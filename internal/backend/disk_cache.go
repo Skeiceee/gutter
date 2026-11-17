@@ -93,10 +93,15 @@ type DiskCache struct {
 	thumbCount int
 	indexBytes int64
 	indexCount int
+
+	// scanDone se cierra cuando termina el recuento inicial. Solo lo usa
+	// WaitScanForTest para que las pruebas sean deterministas.
+	scanDone chan struct{}
 }
 
-// NewDiskCache prepara el directorio y cuenta lo que ya había. Un límite de 0
-// desactiva la caché de páginas, pero mantiene la del índice.
+// NewDiskCache prepara el directorio y lanza en segundo plano el recuento de
+// lo que ya había. Un límite de 0 desactiva la caché de páginas, pero mantiene
+// la del índice.
 func NewDiskCache(dir string, limit int64) *DiskCache {
 	if limit < 0 {
 		limit = 0
@@ -108,25 +113,46 @@ func NewDiskCache(dir string, limit int64) *DiskCache {
 		thumbsDir:  filepath.Join(dir, "thumbs"),
 		limit:      limit,
 		thumbLimit: thumbDiskBudget(limit),
+		scanDone:   make(chan struct{}),
 	}
 	if dir == "" {
 		d.dir = ""
+		close(d.scanDone)
 		return d
 	}
 	if err := os.MkdirAll(d.indexDir, 0o755); err != nil {
 		d.dir = ""
+		close(d.scanDone)
 		return d
 	}
 	if err := os.MkdirAll(d.pagesDir, 0o755); err != nil {
 		d.dir = ""
+		close(d.scanDone)
 		return d
 	}
 	if err := os.MkdirAll(d.thumbsDir, 0o755); err != nil {
 		d.dir = ""
+		close(d.scanDone)
 		return d
 	}
-	d.scan()
+	// El recuento inicial se hace en segundo plano: con miles de archivos no
+	// debe retrasar la creación de la ventana. Las escrituras toman d.mu, así
+	// que el escaneo y una escritura concurrente nunca cuentan dos veces el
+	// mismo archivo.
+	go d.scanAsync()
 	return d
+}
+
+// scanAsync cuenta lo que ya había y aplica los límites en segundo plano.
+// Mantiene d.mu durante el recorrido para que SavePage/SaveThumbnail no
+// incrementen los contadores a la vez que el escaneo los reconstruye.
+func (d *DiskCache) scanAsync() {
+	d.mu.Lock()
+	if d.dir != "" {
+		d.scan()
+	}
+	d.mu.Unlock()
+	close(d.scanDone)
 }
 
 // thumbDiskBudget deriva un presupuesto pequeño para las miniaturas. No debe
@@ -465,6 +491,12 @@ func (d *DiskCache) thumbName(identity, name string, maxSize int) string {
 }
 
 func (d *DiskCache) scan() {
+	// Se parte de cero: si una escritura terminó antes de empezar el escaneo,
+	// ya incrementó los contadores y volver a sumarlos los duplicaría.
+	d.indexCount, d.indexBytes = 0, 0
+	d.pageCount, d.pageBytes = 0, 0
+	d.thumbCount, d.thumbBytes = 0, 0
+
 	entries, err := os.ReadDir(d.indexDir)
 	if err == nil {
 		for _, entry := range entries {

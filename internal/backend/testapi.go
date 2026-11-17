@@ -12,6 +12,10 @@ import (
 const (
 	MinThumbDiskLimit = minThumbDiskLimit
 	MaxThumbDiskLimit = maxThumbDiskLimit
+
+	// DiskPageVersionForTest permite construir cabeceras .gtp válidas en los
+	// tests sin duplicar el número de versión del formato.
+	DiskPageVersionForTest = diskPageVersion
 )
 
 func NaturalLess(a, b string) bool                           { return naturalLess(a, b) }
@@ -24,6 +28,17 @@ func IsLandscape(img image.Image) bool                       { return isLandscap
 func ArchiveIdentity(path string, info os.FileInfo) string   { return archiveIdentity(path, info) }
 func ReportReadProgress(ctx context.Context, scanned, total int) {
 	reportReadProgress(ctx, scanned, total)
+}
+
+// DecodeImageForTest expone la decodificación con límite de píxeles para el
+// fuzzing de cabeceras de imagen.
+func DecodeImageForTest(data []byte, name string) (image.Image, error) {
+	return decodeImage(data, name)
+}
+
+// DecodeDiskPageForTest expone el parser del formato .gtp de la caché en disco.
+func DecodeDiskPageForTest(data []byte) (*image.RGBA, error) {
+	return decodeDiskPage(data)
 }
 
 // NewLoadTestComic crea un cómic mínimo con las cachés en memoria listas.
@@ -58,6 +73,15 @@ func (c *Comic) ThumbnailCached(name string) bool {
 func (c *Comic) DiskIdentityForTest() string { return c.diskIdentity }
 
 func (c *Comic) ZipFilePresent(name string) bool { return c.zipFiles[name] != nil }
+
+// WaitScanForTest espera al recuento inicial de la caché en disco. Solo lo usan
+// las pruebas: en producción ese escaneo es asíncrono a propósito.
+func (d *DiskCache) WaitScanForTest() {
+	if d == nil || d.scanDone == nil {
+		return
+	}
+	<-d.scanDone
+}
 
 // PageCache envuelve pageCache para los benchmarks y tests de la LRU.
 type PageCache struct{ cache *pageCache }

@@ -113,6 +113,25 @@ func TestDiskCachePageRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDiskCacheInitialScanCountsExistingFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// La primera instancia escribe una página. Su escaneo inicial termina
+	// antes de SavePage porque ambos comparten mutex.
+	writer := backend.NewDiskCache(dir, 8<<20)
+	writer.WaitScanForTest()
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	writer.SavePage("comic-scan", "page.png", img)
+
+	// La segunda instancia reconstruye los contadores desde el disco.
+	reader := backend.NewDiskCache(dir, 8<<20)
+	reader.WaitScanForTest()
+	stats := reader.Stats()
+	if stats.Pages != 1 || stats.PageBytes <= 0 {
+		t.Fatalf("el escaneo inicial no contó la página existente: %+v", stats)
+	}
+}
+
 func TestDiskCacheEvictsOldPages(t *testing.T) {
 	const limit = 1200
 	cache := backend.NewDiskCache(t.TempDir(), limit)

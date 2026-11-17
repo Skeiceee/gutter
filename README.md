@@ -63,6 +63,11 @@ caché LRU en RAM.
 - Corte de doble página con `SubImage` y selector Occidental/Manga.
 - Caché LRU de 96 MiB con *single-flight* y precarga de las tres páginas
   siguientes más la anterior; cancelación de lecturas al cambiar de página.
+- **Apertura asíncrona:** indexar un cómic se hace fuera del hilo de UI y la
+  barra inferior muestra «Abriendo cómic…». Abrir otro archivo o pulsar `Esc`
+  descarta la apertura en vuelo y conserva la lectura actual.
+- **Arranque ligero:** el recuento inicial de la caché de disco se hace en
+  segundo plano, sin retrasar la creación de la ventana.
 - **Caché en disco opcional** (512 MB por defecto, configurable en «Acerca de»):
   reabre índices ya vistos sin recorrer el contenedor y conserva páginas
   decodificadas entre sesiones. Se puede vaciar desde el mismo diálogo.
@@ -100,7 +105,7 @@ gutter/
 └── internal/
     ├── app/                # Lógica principal de la aplicación (paquete app).
     │   ├── app.go          # Struct gutterApp, NewGutterApp, arranque.
-    │   ├── dialogs.go      # Diálogos, Abrir cómic, Cancelar carga.
+    │   ├── dialogs.go      # Diálogos, apertura asíncrona y cancelación.
     │   ├── grid.go         # Rejilla de miniaturas, carga perezosa y navegación.
     │   ├── help.go         # Menú Archivo/Ver/Traducción/Ayuda, F1, "Acerca de".
     │   ├── hud.go          # HUD de página en pantalla completa y selector G.
@@ -118,12 +123,19 @@ gutter/
     │   └── tests/          # Pruebas unitarias del paquete app.
     │       └── *_test.go
     ├── backend/            # Índice RAR/ZIP, extracción, decodificación, caché.
-    │   ├── backend.go      # Motor de lectura, prefetch, miniaturas, estadísticas.
+    │   ├── backend.go      # Núcleo: Comic, constantes, ciclo de vida y stats.
+    │   ├── cache.go        # pageCache: LRU acotada en bytes.
     │   ├── disk_cache.go   # Caché persistente de índices, páginas y miniaturas.
     │   ├── integrity.go    # Verificación rápida con presupuesto de tiempo.
+    │   ├── load.go         # Caché LRU y single-flight de páginas/miniaturas.
+    │   ├── names.go        # Filtros de basura y orden natural/lexicográfico.
+    │   ├── open.go         # Detección de contenedor e indexado RAR/ZIP.
     │   ├── options.go      # OpenOptions, SortMode y PageProblem.
+    │   ├── page.go         # Lectura, decodificación y corte de páginas.
+    │   ├── prefetch.go     # Precarga secuencial y cancelable.
+    │   ├── thumbnails.go   # Miniaturas, reducción y persistencia .gth.
     │   ├── testapi.go      # Puente exportado para las pruebas externas.
-    │   └── tests/          # Pruebas unitarias del paquete backend.
+    │   └── tests/          # Pruebas unitarias y fuzzing del paquete backend.
     │       └── *_test.go
     ├── ocr/                # OCR (Windows/Tesseract) y traducción.
     │   ├── ocr*.go
@@ -293,7 +305,9 @@ la cancelación de cargas, el cierre sincronizado del ZIP, la caché separada de
 miniaturas, el round-trip y la evicción de la caché en disco, la restauración de
 índices ZIP/RAR, la detección de imágenes corruptas, la precarga, las
 preferencias de lectura y la rejilla de páginas (ciclo de vida, navegación por
-columnas, selección, estados de celda y resultados asíncronos). El motor se
+columnas, selección, estados de celda y resultados asíncronos), y la apertura
+asíncrona de cómics (secuencia de apertura, cancelación con `Esc` y descarte del
+resultado viejo). El motor se
 validó además con cómics RAR5 normales y sólidos generados para la ocasión, con
 páginas AVIF y WebP reales, y con una página de bocadillos traducida de extremo
 a extremo usando el OCR integrado de Windows y MyMemory.
@@ -306,6 +320,24 @@ CGO_ENABLED=1 go test -run '^$' -bench . -benchmem ./...
 
 Incluye `BenchmarkPageCacheLRU`, `BenchmarkNaturalOrder`,
 `BenchmarkSpreadDetection`, `BenchmarkCropHalf` y `BenchmarkMakeThumbnail`.
+
+### Fuzzing
+
+Los parsers que reciben bytes no confiables tienen objetivos de fuzzing:
+
+```bash
+CGO_ENABLED=1 go test -run '^$' -fuzz=FuzzDecodeImage     -fuzztime=30s ./internal/backend/tests/
+CGO_ENABLED=1 go test -run '^$' -fuzz=FuzzDecodeDiskPage   -fuzztime=30s ./internal/backend/tests/
+CGO_ENABLED=1 go test -run '^$' -fuzz=FuzzOpenComicHeaders -fuzztime=30s ./internal/backend/tests/
+```
+
+- `FuzzDecodeImage`: cabeceras PNG/JPEG/GIF/WebP/AVIF/BMP/TIFF y el límite de
+  píxeles antes de reservar memoria.
+- `FuzzDecodeDiskPage`: el formato binario `.gtp` de la caché en disco.
+- `FuzzOpenComicHeaders`: detección por *magic bytes* e indexado de RAR/ZIP.
+
+Los *seeds* se ejecutan en cada `go test ./...`; el fuzzing real solo se activa
+con `-fuzz`.
 
 ## Integración continua
 
@@ -474,6 +506,11 @@ Fyne v2 sustituyó los métodos `BackgroundColor()`, `ButtonColor()`, etc. por u
   lecturas, espera `loadWG` y `diskWG`, y solo entonces cierra el descriptor del
   ZIP. Un prefetch o una escritura de caché en vuelo nunca pueden leer de un
   archivo ya cerrado ni dejar un `.gtp` a medias.
+- **Apertura asíncrona:** `loadComic` lanza `OpenComicWithOptions` en una
+  goroutine y aplica el resultado con `fyne.Do` solo si `openSeq` sigue vigente.
+  Mientras indexa se conserva el cómic anterior y la barra inferior muestra
+  «Abriendo cómic…». `cancelLoading` (`Esc`) invalida la secuencia; el resultado
+  en vuelo se cierra fuera del hilo de UI.
 - **Precarga en la dirección de lectura:** tras dibujar una página se precargan
   las tres siguientes y la anterior con un contexto separado del progreso. En un
   RAR sólido el backend recorre el contenedor una sola vez para todas ellas
@@ -486,7 +523,9 @@ Fyne v2 sustituyó los métodos `BackgroundColor()`, `ButtonColor()`, etc. por u
   verificación. Las páginas (`.gtp`) son RGBA crudo con una cabecera `GTP1`: se
   eligió no comprimirlas porque descomprimir en cada apertura costaba más que
   decodificar el JPEG original. La evicción es aproximadamente LRU por fecha de
-  uso y el límite se ajusta en «Acerca de».
+  uso y el límite se ajusta en «Acerca de». El recuento inicial de archivos se
+  hace en segundo plano al crear la caché, así que el arranque no espera a
+  recorrer miles de `.gtp`.
 - **Integridad al abrir:** `integrity.go` valida la estructura del contenedor y
   muestrea la primera, la central y la última página con un presupuesto de 1,2 s.
   En RAR sólidos omite el muestreo (abrir una entrada intermedia obligaría a

@@ -26,7 +26,7 @@ Orquesta la ventana Fyne y toda la lógica de lectura.
 | Archivo | Responsabilidad |
 |---------|-----------------|
 | `app.go` | Struct `gutterApp`, `NewGutterApp()`, `Run()`, `FitWindowToPrimaryScreen()`. Estado global de la app (página actual, zoom, modo limpio, etc.). |
-| `dialogs.go` | `showDialog`, `hideActiveDialog`, `openFile`, `LoadComic`, `cancelPageWork`, `cancelLoading`, `isComicPath`, `loadBrandResource`. |
+| `dialogs.go` | `showDialog`, `hideActiveDialog`, `openFile`, `LoadComic`/`loadComic` (indexado asíncrono con `openSeq`), `finishOpening`, `cancelPageWork`, `cancelLoading`, `isComicPath`, `loadBrandResource`. |
 | `grid.go` | Rejilla de páginas: celdas de miniatura, carga perezosa por bloques, navegación por teclado, selección y estados de error. |
 | `help.go` | Menú Archivo/Ver/Traducción/Ayuda, hoja de atajos (`F1`, `?`), "Acerca de". |
 | `hud.go` | Indicador flotante de página en pantalla completa y selector `G`. |
@@ -62,12 +62,23 @@ de 96 MiB con *single-flight*, precarga y caché persistente opcional.
 
 | Archivo | Responsabilidad |
 |---------|-----------------|
-| `backend.go` | Motor de lectura, índice RAR/ZIP, `PrefetchContext`, `ThumbnailsContext`, estadísticas de memoria y limpieza de cachés. |
+| `backend.go` | Núcleo: `Comic`, constantes y presupuestos, ciclo de vida (`Close`, `CancelLoads`), estadísticas de memoria y limpieza de cachés. |
+| `open.go` | Detección del contenedor por *magic bytes*, indexado de RAR/ZIP, restauración del índice persistente y `OpenComic`/`OpenComicWithOptions`. |
+| `page.go` | `GetPage`/`PageContext`, lectura de entradas RAR/ZIP, decodificación con límite de píxeles, `toRGBA` y `CropHalf`. |
+| `load.go` | `Comic.loadImage`: caché LRU y *single-flight* compartido por páginas y miniaturas, con cancelación cuando no quedan interesados. |
+| `prefetch.go` | `PrefetchContext`: precarga secuencial y cancelable de las páginas siguientes. |
+| `thumbnails.go` | `Thumbnail`/`ThumbnailsContext`, reducción a `maxSize` y persistencia en `.gth`. |
+| `names.go` | Filtros de extensión archivo/basura (`__MACOSX`, ocultos) y orden natural/lexicográfico. |
+| `cache.go` | `pageCache`: LRU acotada en bytes con presupuesto separado para páginas y miniaturas. |
 | `disk_cache.go` | Índice `.json` por tamaño/fecha/configuración, páginas `.gtp` en RGBA crudo y miniaturas `.gth`; evicción LRU y presupuestos separados. |
 | `integrity.go` | Comprobación estructural y por muestreo con presupuesto de 1,2 s; devuelve `PageProblem`. |
 | `options.go` | `OpenOptions`, `SortMode` (natural/lexicográfico) y `PageProblem`. |
 
 - Detección por *magic bytes*: `Rar!` para RAR, `PK` para ZIP.
+- El escaneo inicial de la caché en disco se lanza en segundo plano desde
+  `NewDiskCache`: la ventana se crea sin esperar a contar miles de archivos.
+  Las escrituras comparten el mismo mutex, así que el escaneo nunca duplica
+  contadores.
 - Corte de doble página con `SubImage` compactado a `*image.RGBA`.
 - Caché LRU de 96 MiB; caché de miniaturas independiente de 24 MiB.
 - `ThumbnailsContext` entrega varias miniaturas por nombre. En RAR sólidos
@@ -150,17 +161,22 @@ Usuario selecciona .cbr/.cbz
 openFile (dialogs.go)
         │
         ▼
-LoadComic(path) (dialogs.go)
-        │
-        ├─► OpenComicWithOptions(path, opts)   internal/backend
+LoadComic(path) → loadComic(path, "")
+        │  openSeq.Add(1); opening = true; cancela página/traducción
+        ▼
+go OpenComicWithOptions(path, opts)      ← indexado fuera del hilo de UI
         │      └─► detectArchiveKind (magic bytes)
         │      └─► DiskCache.LoadIndex (tamaño + fecha + configuración)
         │      └─► openRARComicWithOptions / openZIPComicWithOptions
         │      └─► finishIndex (orden natural o lexicográfico)
         │      └─► quickIntegrityCheck (si está activa)
-        │
+        ▼
+fyne.Do → ¿seq == openSeq y app viva?
+        │ no ⇒ go comic.Close() (resultado descartado)
+        ▼ sí
+finishOpening(comic, err, pageName)
         ├─► restoreProgress(comic)   library.go (prefs)
-        │
+        ├─► go oldComic.Close()      (fuera del hilo de UI)
         └─► showPage()               ui.go
                │
                ├─► comic.PageContext (backend)
@@ -173,6 +189,10 @@ LoadComic(path) (dialogs.go)
                │
                └─► prefetchAdjacent (tres siguientes + anterior)
 ```
+
+Mientras indexa, la vista conserva el cómic anterior y la barra inferior muestra
+«Abriendo cómic…» con opción de cancelar (`Esc`): `cancelLoading` incrementa
+`openSeq`, de modo que el resultado en vuelo se cierra y se descarta al llegar.
 
 ### Flujo de la rejilla de páginas
 
@@ -190,7 +210,7 @@ grid.go: showThumbnailGrid
                └─► RAR sólido: lote completo (0..n-1) en una sola pasada
                       │
                       ▼
-               Comic.ThumbnailsContext (backend.go)
+               Comic.ThumbnailsContext (thumbnails.go)
                       ├─► memoria (LRU de miniaturas)
                       ├─► disco (.gth, presupuesto separado)
                       └─► readEntry + image.Decode + makeThumbnail
@@ -224,6 +244,12 @@ incrementa `gridSeq` para descartar resultados en vuelo y se vacía la capa.
 11. **Preferencias en un solo diálogo**: `settings_ui.go` es la única entrada
     para cambiar lectura, caché, traducción e interfaz. Las claves viven en
     `settings.go` y ningún otro archivo escribe preferencias de usuario.
+12. **Apertura asíncrona**: indexar un cómic nunca bloquea el hilo de UI. Cada
+    apertura lleva una secuencia (`openSeq`); si el usuario abre otro archivo o
+    pulsa `Esc`, el resultado viejo se cierra y se descarta.
+13. **Arranque ligero**: el escaneo de la caché de disco se hace en segundo
+    plano. Las escrituras toman el mismo mutex, así que el recuento inicial y
+    las altas de páginas nunca se pisan.
 
 ---
 
@@ -250,6 +276,14 @@ windres -i gutter.rc -o ..\rsrc_windows_amd64.syso
 **Pruebas:**
 ```bash
 CGO_ENABLED=1 go test ./...
+CGO_ENABLED=1 go test -race ./internal/backend/tests/...
+```
+
+**Fuzzing** (cabeceras de imagen, formato `.gtp` y contenedores RAR/ZIP):
+```bash
+CGO_ENABLED=1 go test -run=^$ -fuzz=FuzzDecodeImage      -fuzztime=30s ./internal/backend/tests/
+CGO_ENABLED=1 go test -run=^$ -fuzz=FuzzDecodeDiskPage    -fuzztime=30s ./internal/backend/tests/
+CGO_ENABLED=1 go test -run=^$ -fuzz=FuzzOpenComicHeaders  -fuzztime=30s ./internal/backend/tests/
 ```
 
 ---
