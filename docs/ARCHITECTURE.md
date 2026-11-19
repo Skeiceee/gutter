@@ -31,7 +31,7 @@ Orquesta la ventana Fyne y toda la lógica de lectura.
 | `help.go` | Menú Archivo/Ver/Traducción/Ayuda, hoja de atajos (`F1`, `?`), "Acerca de". |
 | `hud.go` | Indicador flotante de página en pantalla completa y selector `G`. |
 | `library.go` | Progreso persistente, lista de recientes, pantalla de bienvenida. |
-| `navigation.go` | Zoom, scroll, paginación, precarga de las tres páginas siguientes y la anterior, `updateControls`, `clampZoom`, `updateZoomLabel`. |
+| `navigation.go` | Zoom, scroll, paginación, precarga de las dos páginas siguientes y la anterior, `updateControls`, `clampZoom`, `updateZoomLabel`. |
 | `run.go` | `Run()`: crea la aplicación Fyne, instala el tema, configura `OnStarted` y lanza `ShowAndRun()`. |
 | `settings.go` | Claves y accesores de preferencias, caché de disco y aviso de integridad. |
 | `settings_ui.go` | Diálogo único de Preferencias con pestañas (Lectura, Caché, Traducción, Interfaz) y aplicación de cambios. |
@@ -58,7 +58,7 @@ main.Run()                      ← main.go llama a app.Run()
 
 Índice de archivos `.cbr`/`.cbz` (RAR v4/v5 y ZIP), extracción selectiva de páginas,
 decodificación multiformato (JPEG, PNG, GIF, WebP, AVIF, BMP, TIFF), caché LRU
-de 96 MiB con *single-flight*, precarga y caché persistente opcional.
+de 64 MiB con *single-flight*, precarga y caché persistente opcional.
 
 | Archivo | Responsabilidad |
 |---------|-----------------|
@@ -70,7 +70,7 @@ de 96 MiB con *single-flight*, precarga y caché persistente opcional.
 | `thumbnails.go` | `Thumbnail`/`ThumbnailsContext`, reducción a `maxSize` y persistencia en `.gth`. |
 | `names.go` | Filtros de extensión archivo/basura (`__MACOSX`, ocultos) y orden natural/lexicográfico. |
 | `cache.go` | `pageCache`: LRU acotada en bytes con presupuesto separado para páginas y miniaturas. |
-| `disk_cache.go` | Índice `.json` por tamaño/fecha/configuración, páginas `.gtp` en RGBA crudo y miniaturas `.gth`; evicción LRU y presupuestos separados. |
+| `disk_cache.go` | Índice `.json` por tamaño/fecha/configuración, páginas `.gtp` en RGBA crudo (escritura y lectura en streaming) y miniaturas `.gth`; evicción LRU y presupuestos separados. |
 | `integrity.go` | Comprobación estructural y por muestreo con presupuesto de 1,2 s; devuelve `PageProblem`. |
 | `options.go` | `OpenOptions`, `SortMode` (natural/lexicográfico) y `PageProblem`. |
 
@@ -80,7 +80,7 @@ de 96 MiB con *single-flight*, precarga y caché persistente opcional.
   Las escrituras comparten el mismo mutex, así que el escaneo nunca duplica
   contadores.
 - Corte de doble página con `SubImage` compactado a `*image.RGBA`.
-- Caché LRU de 96 MiB; caché de miniaturas independiente de 24 MiB.
+- Caché LRU de 64 MiB; caché de miniaturas independiente de 24 MiB.
 - `ThumbnailsContext` entrega varias miniaturas por nombre. En RAR sólidos
   recorre el contenedor una sola vez y descarta las entradas que no se piden.
 - Las miniaturas se guardan en `.gth` con la misma cabecera que las páginas,
@@ -187,7 +187,7 @@ finishOpening(comic, err, pageName)
                │
                ├─► applyPageZoom (zoom 65% ancho por defecto)
                │
-               └─► prefetchAdjacent (tres siguientes + anterior)
+               └─► prefetchAdjacent (dos siguientes + anterior)
 ```
 
 Mientras indexa, la vista conserva el cómic anterior y la barra inferior muestra
@@ -232,7 +232,7 @@ incrementa `gridSeq` para descartar resultados en vuelo y se vacía la capa.
 2. **Paquetes privados**: todo lo bajo `internal/` es inaccesible desde fuera del módulo `gutter`.
 3. **Estado compartido mínimo**: `gutterApp` concentra el estado; los paquetes `backend` y `ocr` no saben de la UI.
 4. **Un solo diálogo a la vez**: `showDialog` / `hideActiveDialog` evitan apilar ventanas al pulsar F1/Ctrl+O repetidamente.
-5. **Caché LRU de 96 MiB**: las páginas decodificadas se mantienen en memoria para evitar recompresión al navegar.
+5. **Caché LRU de 64 MiB**: las páginas decodificadas se mantienen en memoria para evitar recompresión al navegar.
 6. **Zoom por defecto al 65%**: la página ocupa el 65% del ancho disponible, dejando aire a los lados.
 7. **La caché en disco es opcional y best-effort**: un fallo de escritura nunca impide leer; la app puede funcionar sin directorio de caché.
 8. **La lectura nunca se bloquea por una página rota**: los errores de página se muestran en el área de lectura con «Reintentar»; solo los fallos al abrir usan diálogo.

@@ -159,9 +159,23 @@ func (c *Comic) loadPage(ctx context.Context, imageName string) (*image.RGBA, er
 
 	// Normalización obligatoria: GIF animado, WebP, AVIF y algunos PNG
 	// devuelven image.Paletted/NRGBA/YCbCr. Fyne y SubImage necesitan RGBA.
-	img := toRGBA(src)
-	c.savePageToDisk(imageName, img)
-	return img, nil
+	return toRGBA(src), nil
+}
+
+// PersistPage guarda en la caché de disco la página indicada si ya está
+// decodificada en RAM. Se llama solo con la página que el lector muestra: el
+// prefetch se queda en memoria y no genera escrituras de varios MiB por cada
+// cambio de página.
+func (c *Comic) PersistPage(imageName string) {
+	if c == nil || imageName == "" || c.opts.DiskCache == nil || c.diskIdentity == "" {
+		return
+	}
+	if c.opts.DiskCache.HasPage(c.diskIdentity, imageName) {
+		return
+	}
+	if img, ok := c.cache.get(imageName); ok {
+		c.savePageToDisk(imageName, img)
+	}
 }
 
 // savePageToDisk escribe la página en segundo plano. Close espera a que
@@ -403,7 +417,10 @@ func decodeImage(data []byte, name string) (image.Image, error) {
 	if cfg.Width <= 0 || cfg.Height <= 0 {
 		return nil, fmt.Errorf("la imagen %q declara dimensiones no válidas (%dx%d)", name, cfg.Width, cfg.Height)
 	}
-	if pixels := int64(cfg.Width) * int64(cfg.Height); pixels > maxPagePixels {
+	// Comprobar cada factor evita el desbordamiento de int64 con dimensiones
+	// absurdas (2^32-1 × 2^32-1 daría un producto negativo).
+	if int64(cfg.Width) > maxPagePixels || int64(cfg.Height) > maxPagePixels ||
+		int64(cfg.Width)*int64(cfg.Height) > maxPagePixels {
 		return nil, fmt.Errorf(
 			"la imagen %q (%s) declara %dx%d píxeles, por encima del límite de %d megapíxeles",
 			name, format, cfg.Width, cfg.Height, maxPagePixels/1_000_000,

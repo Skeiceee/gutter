@@ -4,6 +4,34 @@ Todas las versiones publicadas de Gutter, con los cambios más visibles para
 quien usa el lector. El ejecutable de cada versión está en
 [Releases](https://github.com/Skeiceee/gutter/releases).
 
+## v1.3.3 — 2026-11-19
+
+Versión centrada en el consumo de memoria. Medida con un cómic de 153 páginas
+(1500 × 2179 px), el uso estable baja de ~92 MB a ~64 MB y el pico de la rejilla
+de miniaturas de ~247 MB a ~46 MB.
+
+### Memoria
+
+- **Caché de páginas de 64 MiB**: antes 96 MiB. Sigue habiendo sitio para la
+  página actual, dos por delante y una por detrás, pero deja de reservar decenas
+  de MiB de forma permanente.
+- **La rejilla libera las páginas completas**: al abrir miniaturas se vacía la
+  LRU de páginas y se fuerza una recolección, porque en esa vista no se usan y
+  el siguiente pico se calculaba sobre el heap antiguo. El pico de generación de
+  miniaturas baja de ~247 MB a ~46 MB.
+- **El prefetch ya no se escribe en disco**: solo se persiste la página que el
+  lector muestra. Antes cada bloque precargado escribía uno o varios `.gtp` de
+  varios MiB, con su copia temporal incluida.
+- **Caché `.gtp` en streaming**: las páginas se vuelcan y se leen fila a fila,
+  sin una copia intermedia del tamaño completo de la página.
+- **Límite de píxeles de 40 MP**: acota el peor caso de una imagen a 160 MB en
+  RGBA (antes 400 MB) y protege contra cabeceras manipuladas.
+
+### Lectura
+
+- **Precarga de dos páginas siguientes** en vez de tres, para que el bloque
+  precargado quepa en el nuevo presupuesto sin expulsar lo ya leído.
+
 ## v1.3.2 — 2026-11-16
 
 Versión de mantenimiento: reorganiza el motor de lectura y aligera el arranque

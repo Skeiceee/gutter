@@ -31,6 +31,7 @@ import (
 	"context"
 	"errors"
 	"image"
+	"runtime"
 	"sync"
 
 	"github.com/nwaples/rardecode/v2"
@@ -38,9 +39,10 @@ import (
 
 const (
 	// defaultPageCacheBudget es el presupuesto de RAM para páginas ya
-	// decodificadas (RGBA). Con scans de ~20 MB caben 4-5 páginas, suficiente
-	// para la página actual, la siguiente (prefetch) y volver atrás sin releer.
-	defaultPageCacheBudget int64 = 96 << 20 // 96 MiB
+	// decodificadas (RGBA). Con scans de ~12 MB caben cinco páginas: la actual,
+	// dos por delante y una por detrás. Subirlo apenas acelera la lectura y
+	// mantiene decenas de MiB ocupados de forma permanente.
+	defaultPageCacheBudget int64 = 64 << 20 // 64 MiB
 
 	// maxPageBytes protege contra entradas corruptas o maliciosas que declaren
 	// un tamaño desmesurado. Una página de cómic rara vez supera los 256 MiB.
@@ -49,8 +51,9 @@ const (
 	// maxPagePixels acota los píxeles que puede declarar una imagen. maxPageBytes
 	// limita el tamaño comprimido, pero un PNG de 20 KB puede declarar
 	// 100 000 × 100 000 píxeles: el decodificador reservaría ~40 GB de RGBA y
-	// tumbaría el proceso. 100 MP cubre con holgura un escaneo a doble página.
-	maxPagePixels int64 = 100_000_000
+	// tumbaría el proceso. 40 MP (160 MB en RGBA) cubre con holgura un escaneo a
+	// doble página o una tira vertical larga y deja margen frente a la caché.
+	maxPagePixels int64 = 40_000_000
 
 	// defaultThumbCacheBudget es independiente de la caché de páginas: las
 	// miniaturas son pequeñas y no deben desplazar la página que se está
@@ -240,12 +243,18 @@ func (c *Comic) MemoryStats() MemoryStats {
 
 // ClearMemoryCaches vacía las páginas y miniaturas en RAM. La página que se
 // está mostrando sigue viva porque el canvas mantiene su propia referencia.
+//
+// Se fuerza una recolección: sin ella el siguiente pico se calcula sobre el
+// heap que acaba de quedar basura y Go no vuelve a recolectar hasta duplicarlo.
+// En la rejilla eso significaba reservar ~120 MB en vez de ~30 MB. La pausa es
+// de milisegundos y solo ocurre al abrir una vista que no usa las páginas.
 func (c *Comic) ClearMemoryCaches() {
 	if c == nil {
 		return
 	}
 	c.cache.clear()
 	c.thumbs.clear()
+	runtime.GC()
 }
 
 // IsSolid indica si el cómic es un RAR sólido. La rejilla lo usa para pedir

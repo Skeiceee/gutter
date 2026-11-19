@@ -247,6 +247,12 @@ func (g *gutterApp) showPage() {
 			return
 		}
 
+		// Solo la página mostrada se guarda en disco. El prefetch se queda en
+		// RAM: persistirlo multiplicaba la escritura sin mejorar la lectura.
+		if seq == g.pageSeq.Load() {
+			comic.PersistPage(name)
+		}
+
 		fyne.Do(func() {
 			if seq != g.pageSeq.Load() {
 				return // llegó tarde: el usuario ya cambió de página

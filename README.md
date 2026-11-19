@@ -61,7 +61,7 @@ caché LRU en RAM.
   barra inferior trunca el progreso y oculta los controles de zoom para evitar
   solapamientos.
 - Corte de doble página con `SubImage` y selector Occidental/Manga.
-- Caché LRU de 96 MiB con *single-flight* y precarga de las tres páginas
+- Caché LRU de 64 MiB con *single-flight* y precarga de las dos páginas
   siguientes más la anterior; cancelación de lecturas al cambiar de página.
 - **Apertura asíncrona:** indexar un cómic se hace fuera del hilo de UI y la
   barra inferior muestra «Abriendo cómic…». Abrir otro archivo o pulsar `Esc`
@@ -479,7 +479,7 @@ Fyne v2 sustituyó los métodos `BackgroundColor()`, `ButtonColor()`, etc. por u
   una fuente CJK del sistema para chino, japonés o coreano. Si no encuentra
   ninguna, mantiene el bocadillo original en vez de dibujar caracteres vacíos.
 - **Caché de miniaturas:** `Comic.ThumbnailContext` mantiene una LRU propia de
-  24 MiB, separada de los 96 MiB de páginas completas. Lee y decodifica la
+  24 MiB, separada de los 64 MiB de páginas completas. Lee y decodifica la
   entrada, la reduce con `x/image/draw` y guarda solo el RGBA pequeño, de modo
   que la rejilla no desplace la página en lectura. Las miniaturas se generan a
   1,5 veces el tamaño lógico multiplicado por el DPI de la pantalla y se
@@ -492,9 +492,11 @@ Fyne v2 sustituyó los métodos `BackgroundColor()`, `ButtonColor()`, etc. por u
   a mano para controlar borde de selección, número, marca «DOBLE» y aviso de
   error. Solo se piden las miniaturas de la zona visible más dos filas de
   margen; el scroll dispara el siguiente bloque y `gridLoading` evita duplicar
-  peticiones. En un RAR sólido la rejilla pide todo el lote de una vez
-  (`ThumbnailsContext`), porque cada bloque volvería a recorrer el contenedor
-  desde el principio. Los resultados llegan desde una goroutine y se aplican
+  peticiones. Al abrirse se vacía la caché de páginas completas (con una
+  recolección forzada), porque en esta vista no se usan y sumaban decenas de MiB
+  al pico de decodificación. En un RAR sólido la rejilla pide todo el lote de
+  una vez (`ThumbnailsContext`), porque cada bloque volvería a recorrer el
+  contenedor desde el principio. Los resultados llegan desde una goroutine y se aplican
   con `fyne.Do`; un contador de secuencia descarta los lotes de una rejilla ya
   cerrada. El tamaño se guarda en `reader.grid_thumb_size` y se aplica al
   reabrir la rejilla.
@@ -512,20 +514,22 @@ Fyne v2 sustituyó los métodos `BackgroundColor()`, `ButtonColor()`, etc. por u
   «Abriendo cómic…». `cancelLoading` (`Esc`) invalida la secuencia; el resultado
   en vuelo se cierra fuera del hilo de UI.
 - **Precarga en la dirección de lectura:** tras dibujar una página se precargan
-  las tres siguientes y la anterior con un contexto separado del progreso. En un
+  las dos siguientes y la anterior con un contexto separado del progreso. En un
   RAR sólido el backend recorre el contenedor una sola vez para todas ellas
   (`PrefetchContext`), en vez de repetir el recorrido por página. Al cambiar de
-  página se cancelan ambos contextos y las lecturas antiguas.
+  página se cancelan ambos contextos y las lecturas antiguas. El prefetch se
+  queda en RAM: solo la página mostrada se escribe en la caché de disco.
 - **Caché persistente:** `internal/backend/disk_cache.go` guarda dos tipos de
   archivo bajo el directorio de caché de Fyne. El índice (`.json`) se valida por
   ruta, tamaño, fecha de modificación, orden, filtro e integridad; para RAR evita
   recorrer las cabeceras al reabrir, y para ZIP evita repetir filtrado, orden y
   verificación. Las páginas (`.gtp`) son RGBA crudo con una cabecera `GTP1`: se
   eligió no comprimirlas porque descomprimir en cada apertura costaba más que
-  decodificar el JPEG original. La evicción es aproximadamente LRU por fecha de
-  uso y el límite se ajusta en «Acerca de». El recuento inicial de archivos se
-  hace en segundo plano al crear la caché, así que el arranque no espera a
-  recorrer miles de `.gtp`.
+  decodificar el JPEG original. Se escriben y leen en streaming, fila a fila,
+  para no duplicar la página en memoria durante el guardado. La evicción es
+  aproximadamente LRU por fecha de uso y el límite se ajusta en «Acerca de». El
+  recuento inicial de archivos se hace en segundo plano al crear la caché, así
+  que el arranque no espera a recorrer miles de `.gtp`.
 - **Integridad al abrir:** `integrity.go` valida la estructura del contenedor y
   muestrea la primera, la central y la última página con un presupuesto de 1,2 s.
   En RAR sólidos omite el muestreo (abrir una entrada intermedia obligaría a

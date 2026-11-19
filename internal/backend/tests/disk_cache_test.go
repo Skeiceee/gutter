@@ -113,6 +113,54 @@ func TestDiskCachePageRoundTrip(t *testing.T) {
 	}
 }
 
+// SubImage conserva el Stride de la imagen original; el volcado en streaming
+// debe copiar fila a fila en ese caso.
+func TestDiskCachePageRoundTripSubImage(t *testing.T) {
+	cache := backend.NewDiskCache(t.TempDir(), 8<<20)
+	defer cache.Clear()
+
+	base := image.NewRGBA(image.Rect(0, 0, 10, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 10; x++ {
+			base.Set(x, y, color.RGBA{R: uint8(x * 11), G: uint8(y * 17), B: 0x40, A: 0xFF})
+		}
+	}
+	sub := base.SubImage(image.Rect(2, 1, 8, 7)).(*image.RGBA)
+
+	cache.SavePage("comic-sub", "page.png", sub)
+	got, ok := cache.LoadPage("comic-sub", "page.png")
+	if !ok {
+		t.Fatal("la subimagen no se recuperó de la caché")
+	}
+	if got.Bounds() != image.Rect(0, 0, 6, 6) {
+		t.Fatalf("bounds = %v, quiero 6×6", got.Bounds())
+	}
+	for y := 0; y < 6; y++ {
+		for x := 0; x < 6; x++ {
+			if got.At(x, y) != sub.At(x+2, y+1) {
+				t.Fatalf("píxel (%d,%d) = %v, quiero %v", x, y, got.At(x, y), sub.At(x+2, y+1))
+			}
+		}
+	}
+}
+
+func TestDiskCacheHasPage(t *testing.T) {
+	cache := backend.NewDiskCache(t.TempDir(), 8<<20)
+	defer cache.Clear()
+
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	if cache.HasPage("comic-has", "page.png") {
+		t.Fatal("HasPage no debe encontrar una página inexistente")
+	}
+	cache.SavePage("comic-has", "page.png", img)
+	if !cache.HasPage("comic-has", "page.png") {
+		t.Fatal("HasPage debe encontrar la página guardada")
+	}
+	if cache.HasPage("comic-has", "otra.png") {
+		t.Fatal("HasPage no debe confundir páginas distintas")
+	}
+}
+
 func TestDiskCacheInitialScanCountsExistingFiles(t *testing.T) {
 	dir := t.TempDir()
 
@@ -286,6 +334,52 @@ func TestPrefetchContextFillsCache(t *testing.T) {
 	}
 	if !comic.PageCached("3.png") {
 		t.Fatal("3.png no quedó precargada")
+	}
+}
+
+// El prefetch no debe escribir páginas en disco: solo se persiste la que el
+// lector muestra. Antes cada bloque de prefetch escribía varios MiB.
+func TestPrefetchDoesNotWritePagesToDisk(t *testing.T) {
+	comicPath := writeTestZIP(t, map[string][]byte{
+		"1.png": testPNG(t, 4, 4, nil),
+		"2.png": testPNG(t, 4, 4, nil),
+		"3.png": testPNG(t, 4, 4, nil),
+	})
+	cache := backend.NewDiskCache(t.TempDir(), 8<<20)
+	defer cache.Clear()
+
+	comic, err := backend.OpenComicWithOptions(comicPath, backend.OpenOptions{
+		Sort:      backend.SortNatural,
+		DiskCache: cache,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := comic.DiskIdentityForTest()
+	if identity == "" {
+		t.Fatal("identidad de disco vacía")
+	}
+
+	if err := comic.PrefetchContext(context.Background(), []string{"1.png", "2.png"}); err != nil {
+		t.Fatal(err)
+	}
+	if cache.HasPage(identity, "1.png") || cache.HasPage(identity, "2.png") {
+		t.Fatal("el prefetch no debe persistir páginas en disco")
+	}
+
+	if _, err := comic.Page("1.png"); err != nil {
+		t.Fatal(err)
+	}
+	comic.PersistPage("1.png")
+	if err := comic.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if !cache.HasPage(identity, "1.png") {
+		t.Fatal("PersistPage debe guardar la página mostrada")
+	}
+	if cache.HasPage(identity, "2.png") {
+		t.Fatal("las páginas solo precargadas no deben guardarse")
 	}
 }
 

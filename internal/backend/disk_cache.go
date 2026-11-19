@@ -15,6 +15,8 @@ package backend
 // operaciones se convierten en no-op y la aplicación sigue funcionando igual.
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -335,13 +337,8 @@ func (d *DiskCache) LoadPage(identity, name string) (*image.RGBA, bool) {
 	if err != nil {
 		return nil, false
 	}
-	data, err := io.ReadAll(io.LimitReader(f, maxPageBytes+(1<<20)))
+	img, err := decodeDiskPageFrom(f)
 	_ = f.Close()
-	if err != nil {
-		return nil, false
-	}
-
-	img, err := decodeDiskPage(data)
 	if err != nil {
 		_ = os.Remove(dst)
 		return nil, false
@@ -353,8 +350,19 @@ func (d *DiskCache) LoadPage(identity, name string) (*image.RGBA, bool) {
 	return img, true
 }
 
+// HasPage indica si la página ya está persistida, sin leer ni decodificar el
+// archivo. PersistPage lo usa para no reescribir páginas que vienen del disco.
+func (d *DiskCache) HasPage(identity, name string) bool {
+	if !d.Enabled() || identity == "" || name == "" {
+		return false
+	}
+	return fileSize(filepath.Join(d.pagesDir, d.pageName(identity, name))) > 0
+}
+
 // SavePage guarda una página en segundo plano. El llamador no espera: la
-// codificación y la escritura quedan fuera del hilo de interfaz.
+// codificación y la escritura quedan fuera del hilo de interfaz. La imagen se
+// vuelca directamente desde RGBA a un temporal, sin una copia intermedia de
+// tamaño completo.
 func (d *DiskCache) SavePage(identity, name string, img *image.RGBA) {
 	if !d.Enabled() || identity == "" || name == "" || img == nil {
 		return
@@ -363,12 +371,14 @@ func (d *DiskCache) SavePage(identity, name string, img *image.RGBA) {
 	d.mu.Lock()
 	limit := d.limit
 	generation := d.generation
+	pagesDir := d.pagesDir
 	d.mu.Unlock()
 	if limit <= 0 {
 		return
 	}
 
-	payload, err := encodeDiskPage(img)
+	dst := filepath.Join(pagesDir, d.pageName(identity, name))
+	tmp, size, err := writeDiskPageTemp(dst, img)
 	if err != nil {
 		return
 	}
@@ -376,13 +386,12 @@ func (d *DiskCache) SavePage(identity, name string, img *image.RGBA) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.dir == "" || d.limit <= 0 || d.generation != generation {
+		_ = os.Remove(tmp)
 		return
 	}
 
-	dst := filepath.Join(d.pagesDir, d.pageName(identity, name))
 	old := fileSize(dst)
-	size, err := writeFileAtomic(dst, payload)
-	if err != nil {
+	if err := commitTempFile(dst, tmp); err != nil {
 		return
 	}
 	if old > 0 {
@@ -410,13 +419,8 @@ func (d *DiskCache) LoadThumbnail(identity, name string, maxSize int) (*image.RG
 	if err != nil {
 		return nil, false
 	}
-	data, err := io.ReadAll(io.LimitReader(f, maxPageBytes+(1<<20)))
+	img, err := decodeDiskPageFrom(f)
 	_ = f.Close()
-	if err != nil {
-		return nil, false
-	}
-
-	img, err := decodeDiskPage(data)
 	if err != nil {
 		_ = os.Remove(dst)
 		return nil, false
@@ -438,12 +442,14 @@ func (d *DiskCache) SaveThumbnail(identity, name string, maxSize int, img *image
 	d.mu.Lock()
 	limit := d.thumbLimit
 	generation := d.generation
+	thumbsDir := d.thumbsDir
 	d.mu.Unlock()
 	if limit <= 0 {
 		return
 	}
 
-	payload, err := encodeDiskPage(img)
+	dst := filepath.Join(thumbsDir, d.thumbName(identity, name, maxSize))
+	tmp, size, err := writeDiskPageTemp(dst, img)
 	if err != nil {
 		return
 	}
@@ -451,13 +457,12 @@ func (d *DiskCache) SaveThumbnail(identity, name string, maxSize int, img *image
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.dir == "" || d.thumbLimit <= 0 || d.generation != generation {
+		_ = os.Remove(tmp)
 		return
 	}
 
-	dst := filepath.Join(d.thumbsDir, d.thumbName(identity, name, maxSize))
 	old := fileSize(dst)
-	size, err := writeFileAtomic(dst, payload)
-	if err != nil {
+	if err := commitTempFile(dst, tmp); err != nil {
 		return
 	}
 	if old > 0 {
@@ -654,13 +659,55 @@ func writeFileAtomic(dst string, data []byte) (int64, error) {
 		_ = os.Remove(tmpName)
 		return 0, err
 	}
-	// Windows no permite Rename sobre un archivo existente.
-	_ = os.Remove(dst)
-	if err := os.Rename(tmpName, dst); err != nil {
-		_ = os.Remove(tmpName)
+	if err := commitTempFile(dst, tmpName); err != nil {
 		return 0, err
 	}
 	return int64(len(data)), nil
+}
+
+// commitTempFile sustituye dst por el temporal ya escrito. Windows no permite
+// Rename sobre un archivo existente, así que se elimina primero.
+func commitTempFile(dst, tmpName string) error {
+	_ = os.Remove(dst)
+	if err := os.Rename(tmpName, dst); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
+}
+
+// writeDiskPageTemp vuelca una página a un temporal junto a dst y devuelve su
+// nombre y tamaño. El volcado es en streaming: no se reserva un buffer del
+// tamaño de la página, que en un escaneo doble son varios MiB por escritura.
+func writeDiskPageTemp(dst string, img *image.RGBA) (string, int64, error) {
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".tmp-*")
+	if err != nil {
+		return "", 0, err
+	}
+	tmpName := tmp.Name()
+
+	buffered := bufio.NewWriterSize(tmp, 256<<10)
+	if err := writeDiskPage(buffered, img); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return "", 0, err
+	}
+	if err := buffered.Flush(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return "", 0, err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return "", 0, err
+	}
+
+	info, err := os.Stat(tmpName)
+	if err != nil {
+		_ = os.Remove(tmpName)
+		return "", 0, err
+	}
+	return tmpName, info.Size(), nil
 }
 
 func fileSize(name string) int64 {
@@ -671,70 +718,99 @@ func fileSize(name string) int64 {
 	return info.Size()
 }
 
-// encodeDiskPage produce: "GTP1" + versión + ancho + alto + RGBA crudo.
+// writeDiskPage produce: "GTP1" + versión + ancho + alto + RGBA crudo.
 // El tamaño en disco es mayor, pero cargar una página es una copia contigua:
 // comprimir y descomprimir en cada apertura resultaba más lento que decodificar
-// el JPEG original.
-func encodeDiskPage(img *image.RGBA) ([]byte, error) {
+// el JPEG original. Los píxeles se escriben directamente desde img.Pix a través
+// del writer, sin materializar una copia completa de la página en memoria.
+func writeDiskPage(w io.Writer, img *image.RGBA) error {
 	if img == nil {
-		return nil, errors.New("imagen vacía")
+		return errors.New("imagen vacía")
 	}
 	b := img.Bounds()
 	width, height := b.Dx(), b.Dy()
 	if width <= 0 || height <= 0 {
-		return nil, errors.New("imagen sin dimensiones")
+		return errors.New("imagen sin dimensiones")
 	}
 	rawSize := int64(width) * int64(height) * 4
 	if rawSize > maxPageBytes {
-		return nil, fmt.Errorf("la imagen ocupa %d MiB y supera el límite", rawSize>>20)
+		return fmt.Errorf("la imagen ocupa %d MiB y supera el límite", rawSize>>20)
 	}
 
-	data := make([]byte, 16+rawSize)
-	copy(data[0:4], diskPageMagic)
-	binary.LittleEndian.PutUint32(data[4:8], diskPageVersion)
-	binary.LittleEndian.PutUint32(data[8:12], uint32(width))
-	binary.LittleEndian.PutUint32(data[12:16], uint32(height))
+	var header [16]byte
+	copy(header[0:4], diskPageMagic)
+	binary.LittleEndian.PutUint32(header[4:8], diskPageVersion)
+	binary.LittleEndian.PutUint32(header[8:12], uint32(width))
+	binary.LittleEndian.PutUint32(header[12:16], uint32(height))
+	if _, err := w.Write(header[:]); err != nil {
+		return err
+	}
 
 	rowBytes := width * 4
-	dst := data[16:]
 	if img.Stride == rowBytes {
 		start := img.PixOffset(b.Min.X, b.Min.Y)
-		copy(dst, img.Pix[start:start+rowBytes*height])
-	} else {
-		for y := b.Min.Y; y < b.Max.Y; y++ {
-			start := img.PixOffset(b.Min.X, y)
-			offset := (y - b.Min.Y) * rowBytes
-			copy(dst[offset:offset+rowBytes], img.Pix[start:start+rowBytes])
+		_, err := w.Write(img.Pix[start : start+rowBytes*height])
+		return err
+	}
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		start := img.PixOffset(b.Min.X, y)
+		if _, err := w.Write(img.Pix[start : start+rowBytes]); err != nil {
+			return err
 		}
 	}
-	return data, nil
+	return nil
 }
 
-func decodeDiskPage(data []byte) (*image.RGBA, error) {
-	if len(data) < 16 || string(data[:4]) != diskPageMagic {
+// decodeDiskPageFrom lee una página .gtp y reserva los píxeles una sola vez.
+func decodeDiskPageFrom(r io.Reader) (*image.RGBA, error) {
+	var header [16]byte
+	if _, err := io.ReadFull(r, header[:]); err != nil {
 		return nil, errors.New("cabecera de página en disco inválida")
 	}
-	if version := binary.LittleEndian.Uint32(data[4:8]); version != diskPageVersion {
+	if string(header[0:4]) != diskPageMagic {
+		return nil, errors.New("cabecera de página en disco inválida")
+	}
+	if version := binary.LittleEndian.Uint32(header[4:8]); version != diskPageVersion {
 		return nil, fmt.Errorf("versión de página en disco no soportada: %d", version)
 	}
-	width := int(binary.LittleEndian.Uint32(data[8:12]))
-	height := int(binary.LittleEndian.Uint32(data[12:16]))
+	width := int64(binary.LittleEndian.Uint32(header[8:12]))
+	height := int64(binary.LittleEndian.Uint32(header[12:16]))
 	if width <= 0 || height <= 0 {
 		return nil, errors.New("dimensiones de página en disco inválidas")
 	}
-	rawSize := int64(width) * int64(height) * 4
+	// Comprobar los factores antes de multiplicar: dos dimensiones de 2^32-1
+	// desbordan int64 y producirían un rawSize negativo.
+	if width > maxPageBytes/4 || height > maxPageBytes/4 {
+		return nil, errors.New("la página en disco supera el límite de tamaño")
+	}
+	rawSize := width * height * 4
 	if rawSize > maxPageBytes {
 		return nil, errors.New("la página en disco supera el límite de tamaño")
 	}
-	if int64(len(data)-16) != rawSize {
+
+	pix := make([]byte, rawSize)
+	if _, err := io.ReadFull(r, pix); err != nil {
 		return nil, errors.New("los píxeles de la página en disco están incompletos")
 	}
 
-	pix := make([]byte, rawSize)
-	copy(pix, data[16:])
+	// Un byte sobrante indica un archivo truncado a medias de otra escritura o
+	// de otra versión: es más seguro descartarlo y releer el original.
+	var extra [1]byte
+	if _, err := io.ReadFull(r, extra[:]); err == nil {
+		return nil, errors.New("la página en disco tiene datos sobrantes")
+	} else if !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+
 	return &image.RGBA{
 		Pix:    pix,
-		Stride: width * 4,
-		Rect:   image.Rect(0, 0, width, height),
+		Stride: int(width) * 4,
+		Rect:   image.Rect(0, 0, int(width), int(height)),
 	}, nil
+}
+
+// decodeDiskPage conserva la interfaz sobre []byte para las pruebas y el
+// fuzzing del formato .gtp.
+func decodeDiskPage(data []byte) (*image.RGBA, error) {
+	return decodeDiskPageFrom(bytes.NewReader(data))
 }

@@ -63,8 +63,9 @@ func (c *Comic) PrefetchContext(ctx context.Context, names []string) error {
 	return nil
 }
 
-// prefetchRARSequential recorre un RAR sólido una vez y guarda todas las
-// páginas pedidas que encuentre. Evita repetir el recorrido por cada página.
+// prefetchRARSequential recorre un RAR sólido una vez y guarda en RAM todas las
+// páginas pedidas que encuentre. Evita repetir el recorrido por cada página y no
+// toca la caché de disco: solo se persiste la página que el lector muestra.
 func (c *Comic) prefetchRARSequential(ctx context.Context, names []string) error {
 	if !c.beginScan() {
 		return errComicClosed
@@ -121,7 +122,6 @@ func (c *Comic) prefetchRARSequential(ctx context.Context, names []string) error
 		}
 		img := toRGBA(src)
 		c.cache.put(header.Name, img)
-		c.savePageToDisk(header.Name, img)
 		delete(targets, header.Name)
 	}
 	return nil

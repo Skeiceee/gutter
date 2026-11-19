@@ -271,6 +271,11 @@ func (g *gutterApp) showThumbnailGrid() {
 	g.gridThumbRender = g.gridThumbnailRenderSize()
 	g.gridSelection = clampInt(g.reader.pageIndex, 0, len(g.reader.comic.Pages)-1)
 
+	// En la rejilla no se muestran páginas completas: liberar la LRU antes de
+	// generar miniaturas evita sumar decenas de MiB al pico de decodificación.
+	// La página visible sigue viva porque el canvas conserva su referencia.
+	g.reader.comic.ClearMemoryCaches()
+
 	ctx, cancel := context.WithCancel(g.baseContext())
 	g.gridCtx = ctx
 	g.gridCancel = cancel

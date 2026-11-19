@@ -157,8 +157,10 @@ func (g *gutterApp) goToPage(index int) {
 	g.showPage()
 }
 
-// prefetchAdjacent precarga las tres páginas siguientes y la anterior. En un
+// prefetchAdjacent precarga las dos páginas siguientes y la anterior. En un
 // RAR sólido el backend recorre el contenedor una sola vez para todas ellas.
+// La profundidad se mantiene corta a propósito: con el presupuesto de 64 MiB,
+// precargar más páginas expulsaría las que el lector acaba de mostrar.
 func (g *gutterApp) prefetchAdjacent(ctx context.Context, comic *backend.Comic) {
 	if comic == nil || ctx == nil || g.reader.comic != comic {
 		return
@@ -178,7 +180,7 @@ func (g *gutterApp) prefetchAdjacent(ctx context.Context, comic *backend.Comic) 
 		names = append(names, name)
 	}
 
-	for offset := 1; offset <= 3; offset++ {
+	for offset := 1; offset <= 2; offset++ {
 		appendPage(g.reader.pageIndex + offset)
 	}
 	appendPage(g.reader.pageIndex - 1)
