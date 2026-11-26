@@ -87,7 +87,18 @@ caché LRU en RAM.
   lectura…».
 - Caché de miniaturas independiente (24 MiB en RAM) con reducción a resolución
   de miniatura, persistencia en disco y presupuesto propio.
-- Tema oscuro fijo: `#121212`, paneles `#1E1E1E` y acento `#007ACC`.
+- **Marcadores con nombre y nota** por página (`B`): se guardan por cómic, se
+  listan en el menú **Marcadores** y se pueden saltar o borrar desde la lista.
+- **Modo tiras (vertical)** (`W`): todas las páginas apiladas sin separación,
+  ideal para manga y cómics coreanos. Solo se decodifican las páginas cercanas a
+  la vista, y el modo se recuerda por cómic.
+- **Atajos personalizables**: la pestaña **Atajos** de Preferencias reasigna las
+  teclas de lectura (página, zoom, rejilla, marcador, tiras, traducción). Esc,
+  F1, Enter y Tab tienen función fija. Si dos acciones comparten tecla, los
+  cambios no se guardan.
+- **Tema oscuro o claro** en Preferencias > Interfaz. El claro también cambia el
+  fondo del lienzo de lectura. El oscuro es el predeterminado: `#121212`,
+  paneles `#1E1E1E` y acento `#007ACC`.
 - Ventana inicial segura (900×800 objetivo), ajustada al área útil del monitor
   y siempre en modo ventana normal; logo SVG y navegación por teclado.
 
@@ -167,7 +178,7 @@ gutter/
 - **`internal/app`**: Orquesta la ventana Fyne, el ciclo de vida de los cómics, la UI de lectura, el HUD, los menús y los diálogos. El estado de lectura vive en `readerState` (`state.go`), independiente de los widgets, para poder probar la navegación sin construir la interfaz.
 - **`internal/backend`**: Índice de archivos `.cbr`/`.cbz` (RAR v4/v5 y ZIP), extracción selectiva de páginas, decodificación multiformato, caché LRU, caché persistente opcional, verificación de integridad y precarga.
 - **`internal/ocr`**: Motor de OCR (Windows integrado o Tesseract), traducción (MyMemory/LibreTranslate/DeepL) y capa de bocadillos traducidos.
-- **`internal/theme`**: Paleta de colores (`#121212`, `#1E1E1E`, `#007ACC`) y tema oscuro fijo de Fyne.
+- **`internal/theme`**: Paleta de colores (`#121212`, `#1E1E1E`, `#007ACC`) con variantes oscura y clara para Fyne.
 - **`internal/ui`**: Layouts personalizados (`PageLayout`, `RootLayout`, `BottomBarLayout`, etc.) y el `ScrollSinSombras` que elimina sombras internas de Fyne.
 - **`internal/cursor`**: `CleanCursor` para ocultar el puntero en modo lectura limpia.
 - **`internal/screen`**: `PrimaryWorkArea()` para obtener el área útil del monitor sin la barra de tareas.

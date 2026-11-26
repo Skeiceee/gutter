@@ -10,6 +10,7 @@ import (
 	"image"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"gutter/internal/backend"
@@ -176,7 +177,9 @@ func (t *TestApp) CacheSummary() string { return t.app.cacheSummary() }
 // TestPill envuelve el HUD flotante para comprobar su estado interno.
 type TestPill struct{ pill *floatingPill }
 
-func NewTestPill() *TestPill { return &TestPill{pill: newFloatingPill()} }
+func NewTestPill() *TestPill {
+	return &TestPill{pill: newFloatingPill(canvas.NewRectangle(nil))}
+}
 
 func (p *TestPill) Root() fyne.CanvasObject { return p.pill.root }
 func (p *TestPill) Visible() bool           { return p.pill.Visible() }
@@ -378,3 +381,30 @@ func (t *TestApp) DiskLimitMB() int           { return t.app.diskLimitMB() }
 func (t *TestApp) RememberWindowSize() bool   { return t.app.rememberWindowSize() }
 func (t *TestApp) ShowPageBadgePref() bool    { return t.app.showPageBadgePref() }
 func (t *TestApp) CheckUpdatesOnStart() bool  { return t.app.checkUpdatesOnStart() }
+
+// ShortcutAction y Bookmark dan nombre exportado a las piezas de atajos y
+// marcadores para las pruebas externas.
+type ShortcutAction = shortcutAction
+type Bookmark = bookmark
+
+const (
+	ActNextPage ShortcutAction = actNextPage
+	ActBookmark ShortcutAction = actBookmark
+	ActZoomIn   ShortcutAction = actZoomIn
+)
+
+func DefaultKeymap() map[ShortcutAction]fyne.KeyName { return defaultKeymap() }
+func ValidateKeymap(keys map[ShortcutAction]fyne.KeyName) error {
+	return validateKeymap(keys)
+}
+func LoadKeymap(prefs fyne.Preferences) map[ShortcutAction]fyne.KeyName {
+	return loadKeymap(prefs)
+}
+func LoadBookmarks(prefs fyne.Preferences) []Bookmark { return loadBookmarks(prefs) }
+
+func (t *TestApp) SetKeymap(keys map[ShortcutAction]fyne.KeyName) { t.app.keymap = keys }
+func (t *TestApp) ActionFor(name fyne.KeyName) (ShortcutAction, bool) {
+	return t.app.actionFor(name)
+}
+func (t *TestApp) Bookmarks() []Bookmark         { return t.app.bookmarks }
+func (t *TestApp) UpsertBookmark(entry Bookmark) { t.app.upsertBookmark(entry) }

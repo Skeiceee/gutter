@@ -9,6 +9,11 @@ import (
 )
 
 func (g *gutterApp) applyPageZoom(resetScroll bool) {
+	if g.reader.webtoon {
+		g.recomputeStrip()
+		g.updateZoomLabel()
+		return
+	}
 	img := g.pageImage.Image
 	if img == nil {
 		return
@@ -86,7 +91,7 @@ func (g *gutterApp) scrollStep() float32 {
 // zoomBy cambia a zoom manual manteniendo el nivel actual como punto de partida.
 
 func (g *gutterApp) zoomBy(factor float32) {
-	if g.reader.comic == nil || g.pageImage.Image == nil || g.reader.loading {
+	if g.reader.comic == nil || !g.hasPage() || g.reader.loading {
 		return
 	}
 	g.reader.zoomBy(factor)
@@ -97,7 +102,7 @@ func (g *gutterApp) zoomBy(factor float32) {
 // fitWidth vuelve al modo de ajuste al ancho del área de lectura.
 
 func (g *gutterApp) fitWidth() {
-	if g.pageImage.Image == nil {
+	if !g.hasPage() {
 		return
 	}
 	g.reader.fitWidth()
@@ -108,7 +113,7 @@ func (g *gutterApp) fitWidth() {
 // zoom100 muestra la página a escala 1:1 (un píxel de imagen = una unidad Fyne).
 
 func (g *gutterApp) zoom100() {
-	if g.pageImage.Image == nil {
+	if !g.hasPage() {
 		return
 	}
 	g.reader.zoom100()
@@ -130,6 +135,11 @@ func isRightHalf(half int, manga bool) bool {
 func (g *gutterApp) nextPage() {
 	defer g.unfocus()
 
+	if g.reader.webtoon {
+		g.stripStep(1)
+		return
+	}
+
 	// Se permite navegar durante una carga: showPage cancela la anterior. Así
 	// una pulsación rápida de flecha no espera a que termine un RAR sólido.
 	if !g.reader.next() {
@@ -141,6 +151,11 @@ func (g *gutterApp) nextPage() {
 func (g *gutterApp) previousPage() {
 	defer g.unfocus()
 
+	if g.reader.webtoon {
+		g.stripStep(-1)
+		return
+	}
+
 	if !g.reader.previous() {
 		return
 	}
@@ -151,6 +166,10 @@ func (g *gutterApp) goToPage(index int) {
 	defer g.unfocus()
 
 	if g.reader.comic == nil {
+		return
+	}
+	if g.reader.webtoon {
+		g.scrollStripTo(index, true)
 		return
 	}
 	g.reader.goTo(index)

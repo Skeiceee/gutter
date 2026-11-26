@@ -34,6 +34,10 @@ func (g *gutterApp) translationCacheKey(cfg ocr.TranslationConfig) string {
 // toggleTranslation muestra u oculta la capa traducida. La primera vez
 // ejecuta OCR + traducción; después reutiliza la caché de la página.
 func (g *gutterApp) toggleTranslation() {
+	if g.reader.webtoon && g.reader.comic != nil {
+		g.notifyStripUnavailable("La traducción")
+		return
+	}
 	if g.reader.comic == nil || g.pageImage.Image == nil {
 		dialog.ShowInformation("Traducción", "Abre un cómic para traducir una página.", g.window)
 		return

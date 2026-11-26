@@ -29,6 +29,11 @@ Orquesta la ventana Fyne y toda la lógica de lectura.
 | `dialogs.go` | `showDialog`, `hideActiveDialog`, `openFile`, `LoadComic`/`loadComic` (indexado asíncrono con `openSeq`), `finishOpening`, `cancelPageWork`, `cancelLoading`, `isComicPath`, `loadBrandResource`. |
 | `grid.go` | Rejilla de páginas: celdas de miniatura, carga perezosa por bloques, navegación por teclado, selección y estados de error. |
 | `help.go` | Menú Archivo/Ver/Traducción/Ayuda, hoja de atajos (`F1`, `?`), "Acerca de". |
+| `bookmarks.go` | Marcadores por página (nombre y nota) en `fyne.Preferences`, diálogo de creación/edición, lista del cómic y entradas del menú Marcadores. |
+| `keymap.go` | Acciones de lectura reasignables (`shortcutAction`), teclas de fábrica, lista cerrada de teclas, validación de conflictos y `actionFor`, que traduce una tecla en su acción. |
+| `keys_ui.go` | Pestaña "Atajos" de Preferencias: un desplegable por acción y restablecimiento. |
+| `strip.go` | Modo tiras (webtoon): páginas apiladas en vertical, carga y liberación por cercanía a la vista, sincronización de la página actual con `OnScrolled`. |
+| `theme_ui.go` | Aplicación del tema elegido y registro de rectángulos dibujados a mano (`themedRect`) para repintarlos al cambiar de tema. |
 | `hud.go` | Indicador flotante de página en pantalla completa y selector `G`. |
 | `library.go` | Progreso persistente, lista de recientes, pantalla de bienvenida. |
 | `navigation.go` | Zoom, scroll, paginación, precarga de las dos páginas siguientes y la anterior, `updateControls`, `clampZoom`, `updateZoomLabel`. |
@@ -45,7 +50,7 @@ Orquesta la ventana Fyne y toda la lógica de lectura.
 ```
 main.Run()                      ← main.go llama a app.Run()
   └─ app.NewWithID(...)
-  └─ theme.NewGutterTheme()
+  └─ theme.NewGutterThemeVariant(claro)
   └─ NewGutterApp(a)            ← crea ventana, menú, HUD, controles
   └─ a.Lifecycle().SetOnStarted()
         └─ FitWindowToPrimaryScreen()
@@ -53,6 +58,24 @@ main.Run()                      ← main.go llama a app.Run()
         └─ maybeCheckUpdates()      (solo si está activado en Preferencias)
   └─ app.Run()                  ← window.ShowAndRun()
 ```
+
+**Atajos y acciones:**
+
+- `handleKey` solo resuelve `Esc` y `F1`. Las demás teclas pasan por `actionFor(name)`, que consulta `gutterApp.keymap` (cargado de `keys.<acción>` en preferencias o de la asignación de fábrica).
+- `runAction` ejecuta la acción. Las flechas de página se invierten en manga aquí, no en el mapa de teclas.
+- `=` cuenta como `+` para el zoom cuando `+` no tiene otra acción.
+- `validateKeymap` impide guardar dos acciones con la misma tecla. Se comprueba en `showSettings` antes de `applySettings`.
+
+**Modo tiras (`strip.go`):**
+
+- `enableStrip` pone `g.scroll.Content` al contenido de tiras, con `stripLayout`, que coloca las páginas una debajo de otra sin separación.
+- Cada página es un `container.NewStack` con fondo, imagen y mensaje. La altura sale de la proporción real cuando la página está cargada, y de `stripPlaceholderRatio` (1.5) hasta entonces.
+- `loadStripAround` decodifica las páginas a ±2 de la vista y libera las que están a más de 4. Al liberar, conserva `natW`/`natH` para que el diseño no cambie.
+- `OnScrolled` llama a `syncStrip`, que toma como página actual la que queda en el borde superior de la vista.
+- Al cargar una página por encima de la actual, el scroll se ajusta en la diferencia de altura para que la vista no salte.
+- Traducción no disponible en tiras (`notifyStripUnavailable`). Las acciones de zoom usan el ancho real de la tira.
+
+**Marcadores (`bookmarks.go`):** un marcador por página, identificado por ruta normalizada y número de página. Se guardan en `reader.bookmarks` como JSON, con un límite global de 2000.
 
 ### `internal/backend`
 
@@ -103,7 +126,7 @@ Motor de OCR y traducción.
 
 ### `internal/theme`
 
-Paleta de colores oficial de Gutter y `fyne.Theme` con variante oscura fija:
+Paleta de colores oficial de Gutter y `fyne.Theme` con dos variantes: oscura (por defecto) y clara. La elección se guarda en `ui.theme` y se aplica desde Preferencias > Interfaz.
 
 | Elemento | Color |
 |----------|-------|
@@ -113,6 +136,10 @@ Paleta de colores oficial de Gutter y `fyne.Theme` con variante oscura fija:
 | Hover (`ColorNameHover`) | `#333333` |
 | Acento (`ColorNamePrimary`) | `#007ACC` |
 | Texto claro | blanco/gris claro |
+
+Variante clara (`NewGutterThemeLight`): lienzo `#DCDCDC`, paneles `#F3F3F3`, texto `#1E1E1E`. El acento `#007ACC` se mantiene en ambas.
+
+Los rectángulos dibujados a mano (lienzo, barra inferior, pastillas, rejilla) fijan su color al crearse, así que se crean con `themedRect` y se repintan en `applyTheme`.
 
 ### `internal/ui`
 

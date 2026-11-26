@@ -10,6 +10,7 @@ package app
 // estado del diálogo.
 
 import (
+	"fmt"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -28,6 +29,7 @@ const (
 	settingsTabCache
 	settingsTabTranslation
 	settingsTabInterface
+	settingsTabShortcuts
 )
 
 // showSettings abre las preferencias en la pestaña indicada. Un único
@@ -172,7 +174,18 @@ func (g *gutterApp) showSettings(tab settingsTab) {
 	helpButton := widget.NewButton("Ver atajos de teclado…", g.showHelp)
 	helpButton.Importance = widget.LowImportance
 
+	themeSelect := widget.NewSelect([]string{"Oscuro", "Claro"}, nil)
+	if g.lightTheme() {
+		themeSelect.SetSelected("Claro")
+	} else {
+		themeSelect.SetSelected("Oscuro")
+	}
+
 	interfaceTab := container.NewVBox(
+		sectionLabel("Tema"),
+		themeSelect,
+		widget.NewLabel("Afecta a la interfaz y también al fondo del lienzo de lectura."),
+		widget.NewSeparator(),
 		sectionLabel("Ventana"),
 		rememberWindowCheck,
 		pageBadgeCheck,
@@ -184,15 +197,17 @@ func (g *gutterApp) showSettings(tab settingsTab) {
 		widget.NewSeparator(),
 		sectionLabel("Acerca de"),
 		widget.NewLabelWithStyle("Gutter "+version.Detail(), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabel("Tema oscuro fijo: #121212, paneles #1E1E1E y acento #007ACC."),
+		widget.NewLabel("Paleta oscura #121212 y clara #DCDCDC, con acento #007ACC."),
 	)
 
 	// --- Diálogo ---------------------------------------------------------
+	shortcutsTab, keySelects := g.buildShortcutsTab()
+	shortcutsScroll := container.NewVScroll(shortcutsTab)
 	readingScroll := container.NewVScroll(readingTab)
 	cacheScroll := container.NewVScroll(cacheTab)
 	translationScroll := container.NewVScroll(translationTab)
 	interfaceScroll := container.NewVScroll(interfaceTab)
-	for _, scroll := range []*container.Scroll{readingScroll, cacheScroll, translationScroll, interfaceScroll} {
+	for _, scroll := range []*container.Scroll{readingScroll, cacheScroll, translationScroll, interfaceScroll, shortcutsScroll} {
 		scroll.SetMinSize(fyne.NewSize(540, 380))
 	}
 
@@ -201,9 +216,10 @@ func (g *gutterApp) showSettings(tab settingsTab) {
 		container.NewTabItem("Caché", cacheScroll),
 		container.NewTabItem("Traducción", translationScroll),
 		container.NewTabItem("Interfaz", interfaceScroll),
+		container.NewTabItem("Atajos", shortcutsScroll),
 	)
 	tabs.SetTabLocation(container.TabLocationTop)
-	if tab >= settingsTabReading && tab <= settingsTabInterface {
+	if tab >= settingsTabReading && tab <= settingsTabShortcuts {
 		tabs.SelectTabIndex(int(tab))
 	}
 
@@ -214,6 +230,11 @@ func (g *gutterApp) showSettings(tab settingsTab) {
 		tabs,
 		func(saved bool) {
 			if !saved {
+				return
+			}
+			keys := keySelection(keySelects)
+			if err := validateKeymap(keys); err != nil {
+				dialog.ShowError(fmt.Errorf("No se guardaron las preferencias. %w", err), g.window)
 				return
 			}
 			g.applySettings(settingsSnapshot{
@@ -228,6 +249,8 @@ func (g *gutterApp) showSettings(tab settingsTab) {
 				rememberWindow: rememberWindowCheck.Checked,
 				pageBadge:      pageBadgeCheck.Checked,
 				checkUpdates:   checkUpdatesCheck.Checked,
+				lightTheme:     themeSelect.Selected == "Claro",
+				keys:           keys,
 			})
 		},
 		g.window,
@@ -251,6 +274,8 @@ type settingsSnapshot struct {
 	rememberWindow bool
 	pageBadge      bool
 	checkUpdates   bool
+	lightTheme     bool
+	keys           map[shortcutAction]fyne.KeyName
 }
 
 func translationSelection(current ocr.TranslationConfig, source, target, provider *widget.Select, endpoint, apiKey *widget.Entry, ocrOnly *widget.Check) ocr.TranslationConfig {
@@ -270,6 +295,7 @@ func translationSelection(current ocr.TranslationConfig, source, target, provide
 
 // applySettings persiste el snapshot y refresca solo lo que haya cambiado.
 func (g *gutterApp) applySettings(next settingsSnapshot) {
+	oldLight := g.lightTheme()
 	oldSort := g.sortMode()
 	oldJunk := g.filterJunk()
 	oldIntegrity := g.integrityCheck()
@@ -295,6 +321,8 @@ func (g *gutterApp) applySettings(next settingsSnapshot) {
 		g.prefs.SetBool(prefRememberWindow, next.rememberWindow)
 		g.prefs.SetBool(prefPageBadge, next.pageBadge)
 		g.prefs.SetBool(prefCheckUpdates, next.checkUpdates)
+		g.prefs.SetString(prefTheme, themeValue(next.lightTheme))
+		saveKeymap(g.prefs, next.keys)
 		g.prefs.SetString(ocr.PrefOCRSource, next.translation.Source.Code)
 		g.prefs.SetString(ocr.PrefTranslateTarget, next.translation.Target.Code)
 		g.prefs.SetString(ocr.PrefTranslateProvider, next.translation.Provider)
@@ -326,6 +354,12 @@ func (g *gutterApp) applySettings(next settingsSnapshot) {
 		}
 	}
 
+	if next.keys != nil {
+		g.keymap = next.keys
+	}
+	if oldLight != next.lightTheme {
+		g.applyTheme(next.lightTheme)
+	}
 	if oldTranslation != next.translation {
 		g.cancelTranslation()
 		g.clearTranslation()

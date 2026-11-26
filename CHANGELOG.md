@@ -4,6 +4,58 @@ Todas las versiones publicadas de Gutter, con los cambios más visibles para
 quien usa el lector. El ejecutable de cada versión está en
 [Releases](https://github.com/Skeiceee/gutter/releases).
 
+## v1.4.0 — 2026-11-26
+
+Versión centrada en personalizar la lectura: marcadores, modo tiras, atajos
+reasignables y tema claro.
+
+### Marcadores
+
+- **Marcadores con nombre y nota** en la página actual con `B`. Un marcador por
+  página; pulsar `B` otra vez en la misma página lo edita.
+- **Menú Marcadores**: añadir o editar, ver la lista del cómic (saltar o borrar)
+  y acceso directo a los nueve últimos.
+- Se guardan en preferencias, por cómic, y no ocupan archivos propios.
+
+### Modo tiras (vertical)
+
+- **Todas las páginas en vertical, sin separación**, activable con `W` o desde
+  Ver > Modo tiras. Pensado para manga y cómics coreanos.
+- Solo se decodifican las páginas cercanas a la vista. Las lejanas liberan
+  memoria y conservan su altura, así que el scroll no salta.
+- La página actual se actualiza al desplazarse, con la rueda, el arrastre o la
+  barra lateral. El modo se recuerda por cómic.
+- La traducción (`T`) no está disponible en modo tiras y avisa al intentarlo.
+
+### Atajos personalizables
+
+- Nueva pestaña **Atajos** en Preferencias para reasignar las teclas de lectura:
+  página siguiente y anterior, primera y última, ir a página, rejilla, scroll,
+  zoom, ajustar al ancho, zoom 100 %, modo limpio, modo tiras, marcador y
+  traducción.
+- Cada acción tiene un desplegable. Si dos acciones comparten tecla, los cambios
+  no se guardan y aparece un aviso.
+- Restablecer devuelve las teclas de fábrica.
+- `Esc`, `F1`, `Enter` y `Tab` tienen función fija y no se pueden reasignar.
+- La ayuda (`F1`) y los menús muestran las teclas actuales.
+
+### Tema claro
+
+- Selector **Oscuro / Claro** en Preferencias > Interfaz. El oscuro sigue siendo
+  el predeterminado.
+- El tema claro también cambia el fondo del lienzo de lectura.
+- El cambio se aplica al guardar, sin reiniciar.
+
+### Interno
+
+- `keymap.go` concentra las acciones y sus teclas, y `actionFor` resuelve cada
+  pulsación. `handleKey` ya no tiene teclas fijas.
+- `strip.go` implementa el modo tiras sobre el mismo `Scroll` de Fyne.
+- `theme_ui.go` registra los rectángulos dibujados a mano para repintarlos al
+  cambiar de tema.
+- Nuevas pruebas de validación de atajos, carga de preferencias de teclas,
+  alias de `=`, marcadores y sustitución por página.
+
 ## v1.3.3 — 2026-11-19
 
 Versión centrada en el consumo de memoria. Medida con un cómic de 153 páginas

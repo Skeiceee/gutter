@@ -44,6 +44,7 @@ type recentComic struct {
 	Total      int     `json:"total"`
 	Manga      bool    `json:"manga"`
 	SinglePage bool    `json:"single_page"`
+	Webtoon    bool    `json:"webtoon"`
 	ZoomFit    bool    `json:"zoom_fit"`
 	ZoomScale  float32 `json:"zoom_scale"`
 	UpdatedAt  int64   `json:"updated_at"`

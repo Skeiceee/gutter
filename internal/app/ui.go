@@ -21,7 +21,6 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"gutter/internal/backend"
-	gtheme "gutter/internal/theme"
 	"gutter/internal/ui"
 )
 
@@ -126,7 +125,7 @@ func (g *gutterApp) buildBottomBar() fyne.CanvasObject {
 		Zoom:   zoomControls,
 	}
 
-	barBg := canvas.NewRectangle(gtheme.GutterPanelColor())
+	barBg := g.themedRect(panelTint)
 	barBg.Shadow.Color = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x99}
 	barBg.Shadow.BlurRadius = 2
 	barBg.Shadow.Offset = fyne.NewPos(0, -1)
@@ -145,7 +144,7 @@ func (g *gutterApp) onReaderResize(size fyne.Size) {
 	if !g.reader.setViewport(size) {
 		return
 	}
-	if g.reader.zoomFit && g.pageImage.Image != nil {
+	if g.reader.zoomFit && g.hasPage() {
 		g.applyPageZoom(false)
 	}
 }
@@ -188,6 +187,11 @@ func (g *gutterApp) showPage() {
 	// anterior: ya no corresponde a la página que se va a mostrar.
 	g.cancelTranslation()
 	g.clearTranslation()
+	if g.reader.webtoon {
+		g.enableStrip()
+		return
+	}
+	g.leaveStrip()
 	g.clearPageError()
 	if g.pageImage.Image != nil {
 		g.scroll.Show()
@@ -356,46 +360,6 @@ func (g *gutterApp) handleKey(event *fyne.KeyEvent) {
 	}
 
 	switch event.Name {
-	case fyne.KeyRight:
-		if g.reader.manga {
-			g.previousPage()
-		} else {
-			g.nextPage()
-		}
-	case fyne.KeyLeft:
-		if g.reader.manga {
-			g.nextPage()
-		} else {
-			g.previousPage()
-		}
-	case fyne.KeyHome:
-		g.goToPage(0)
-	case fyne.KeyEnd:
-		if g.reader.comic != nil {
-			g.goToPage(len(g.reader.comic.Pages) - 1)
-		}
-	case fyne.KeyG:
-		g.openGotoPage()
-	case fyne.KeyM:
-		g.toggleThumbnailGrid()
-	case fyne.KeyUp:
-		g.scrollVertical(g.scrollStep())
-	case fyne.KeyDown:
-		g.scrollVertical(-g.scrollStep())
-	case fyne.KeyPlus, fyne.KeyEqual:
-		g.zoomBy(zoomStep)
-	case fyne.KeyMinus:
-		g.zoomBy(1 / zoomStep)
-	case fyne.Key0:
-		g.fitWidth()
-	case fyne.Key1:
-		g.zoom100()
-	case fyne.KeyF11:
-		g.toggleCleanMode()
-	case fyne.KeyF1:
-		g.showHelp()
-	case fyne.KeyT:
-		g.toggleTranslation()
 	case fyne.KeyEscape:
 		if g.reader.loading || g.opening {
 			g.cancelLoading()
@@ -404,6 +368,63 @@ func (g *gutterApp) handleKey(event *fyne.KeyEvent) {
 		if g.reader.cleanMode {
 			g.toggleCleanMode()
 		}
+		return
+	case fyne.KeyF1:
+		g.showHelp()
+		return
+	}
+
+	if action, ok := g.actionFor(event.Name); ok {
+		g.runAction(action)
+	}
+}
+
+// runAction ejecuta la función de una acción de lectura. Las flechas de página
+// se invierten en manga, por eso se resuelven aquí y no en el mapa de teclas.
+func (g *gutterApp) runAction(action shortcutAction) {
+	switch action {
+	case actNextPage:
+		if g.reader.manga {
+			g.previousPage()
+		} else {
+			g.nextPage()
+		}
+	case actPrevPage:
+		if g.reader.manga {
+			g.nextPage()
+		} else {
+			g.previousPage()
+		}
+	case actFirstPage:
+		g.goToPage(0)
+	case actLastPage:
+		if g.reader.comic != nil {
+			g.goToPage(len(g.reader.comic.Pages) - 1)
+		}
+	case actGotoPage:
+		g.openGotoPage()
+	case actThumbGrid:
+		g.toggleThumbnailGrid()
+	case actScrollUp:
+		g.scrollVertical(g.scrollStep())
+	case actScrollDown:
+		g.scrollVertical(-g.scrollStep())
+	case actZoomIn:
+		g.zoomBy(zoomStep)
+	case actZoomOut:
+		g.zoomBy(1 / zoomStep)
+	case actFitWidth:
+		g.fitWidth()
+	case actZoom100:
+		g.zoom100()
+	case actCleanMode:
+		g.toggleCleanMode()
+	case actWebtoon:
+		g.toggleStrip()
+	case actTranslate:
+		g.toggleTranslation()
+	case actBookmark:
+		g.openBookmarkDialog()
 	}
 }
 

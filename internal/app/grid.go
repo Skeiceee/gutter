@@ -322,7 +322,7 @@ func (g *gutterApp) showThumbnailGrid() {
 	}
 
 	body := container.NewBorder(header, footer, nil, nil, g.gridScroll)
-	background := canvas.NewRectangle(color.NRGBA{R: 0x12, G: 0x12, B: 0x12, A: 0xF4})
+	background := g.themedRect(gridTint)
 	g.gridOverlay.Objects = []fyne.CanvasObject{background, container.NewPadded(body)}
 	g.gridOverlay.Show()
 	g.root.Refresh()
@@ -628,8 +628,12 @@ func (g *gutterApp) handleGridKey(event *fyne.KeyEvent) bool {
 	}
 	columns := g.gridColumns()
 	pageStep := columns * 4
+	if event.Name == g.keyFor(actThumbGrid) {
+		g.hideThumbnailGrid()
+		return true
+	}
 	switch event.Name {
-	case fyne.KeyEscape, fyne.KeyM:
+	case fyne.KeyEscape:
 		g.hideThumbnailGrid()
 	case fyne.KeyReturn, fyne.KeyEnter:
 		g.jumpFromGrid()

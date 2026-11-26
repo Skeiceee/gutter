@@ -20,6 +20,7 @@ import (
 
 // installMenu crea el menú nativo de la ventana. Los atajos con Ctrl se
 // registran aquí para que funcionen también cuando el foco está en un control.
+// Las teclas de lectura se muestran según la asignación actual.
 func (g *gutterApp) installMenu() {
 	openItem := fyne.NewMenuItem("Abrir cómic…", g.openFile)
 	openItem.Shortcut = &desktop.CustomShortcut{KeyName: fyne.KeyO, Modifier: fyne.KeyModifierControl}
@@ -59,23 +60,36 @@ func (g *gutterApp) installMenu() {
 	})
 	mangaItem.Checked = g.reader.manga
 
+	stripItem := fyne.NewMenuItem("Modo tiras, vertical ("+g.keyText(actWebtoon)+")", g.toggleStrip)
+	stripItem.Checked = g.reader.webtoon
+
 	viewItems := []*fyne.MenuItem{
-		fyne.NewMenuItem("Modo limpio (F11)", g.toggleCleanMode),
-		fyne.NewMenuItem("Rejilla de páginas (M)", g.toggleThumbnailGrid),
-		fyne.NewMenuItem("Ir a página… (G)", g.openGotoPage),
+		fyne.NewMenuItem("Modo limpio ("+g.keyText(actCleanMode)+")", g.toggleCleanMode),
+		fyne.NewMenuItem("Rejilla de páginas ("+g.keyText(actThumbGrid)+")", g.toggleThumbnailGrid),
+		fyne.NewMenuItem("Ir a página… ("+g.keyText(actGotoPage)+")", g.openGotoPage),
 		fyne.NewMenuItemSeparator(),
 		singlePageItem,
 		westernItem,
 		mangaItem,
+		stripItem,
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Ajustar al ancho (0)", g.fitWidth),
-		fyne.NewMenuItem("Zoom 100 % (1)", g.zoom100),
+		fyne.NewMenuItem("Ajustar al ancho ("+g.keyText(actFitWidth)+")", g.fitWidth),
+		fyne.NewMenuItem("Zoom 100 % ("+g.keyText(actZoom100)+")", g.zoom100),
 		fyne.NewMenuItemSeparator(),
 		preferencesItem,
 	}
 
+	bookmarkItems := []*fyne.MenuItem{
+		fyne.NewMenuItem("Añadir o editar marcador ("+g.keyText(actBookmark)+")", g.openBookmarkDialog),
+		fyne.NewMenuItem("Ver marcadores…", g.showBookmarkList),
+	}
+	if recent := g.bookmarkMenuItems(); len(recent) > 0 {
+		bookmarkItems = append(bookmarkItems, fyne.NewMenuItemSeparator())
+		bookmarkItems = append(bookmarkItems, recent...)
+	}
+
 	translationItems := []*fyne.MenuItem{
-		fyne.NewMenuItem("Traducir / ocultar página (T)", g.toggleTranslation),
+		fyne.NewMenuItem("Traducir / ocultar página ("+g.keyText(actTranslate)+")", g.toggleTranslation),
 		fyne.NewMenuItem("Preferencias de OCR y traducción…", func() { g.showSettings(settingsTabTranslation) }),
 	}
 
@@ -89,6 +103,7 @@ func (g *gutterApp) installMenu() {
 	g.mainMenu = fyne.NewMainMenu(
 		fyne.NewMenu("Archivo", fileItems...),
 		fyne.NewMenu("Ver", viewItems...),
+		fyne.NewMenu("Marcadores", bookmarkItems...),
 		fyne.NewMenu("Traducción", translationItems...),
 		fyne.NewMenu("Ayuda", helpItems...),
 	)
@@ -152,31 +167,36 @@ func (g *gutterApp) showAbout() {
 }
 
 // showHelp presenta la hoja de referencia. Se llega aquí con F1, con "?" o
-// desde el menú Ayuda.
+// desde el menú Ayuda. Las teclas se leen de la asignación actual.
 func (g *gutterApp) showHelp() {
 	body := container.NewVBox(
 		sectionLabel("Lectura"),
-		shortcutRow("→ / ←", "Página siguiente / anterior (se invierten en manga)"),
-		shortcutRow("↑ / ↓", "Desplazar la página verticalmente"),
-		shortcutRow("Inicio / Fin", "Primera / última página"),
+		shortcutRow(g.keyText(actNextPage)+" / "+g.keyText(actPrevPage), "Página siguiente / anterior (se invierten en manga)"),
+		shortcutRow(g.keyText(actScrollUp)+" / "+g.keyText(actScrollDown), "Desplazar la página verticalmente"),
+		shortcutRow(g.keyText(actFirstPage)+" / "+g.keyText(actLastPage), "Primera / última página"),
 		shortcutRow("G + número + Enter", "Ir a una página concreta"),
-		shortcutRow("M", "Abrir o cerrar la rejilla de páginas"),
-		shortcutRow("↑↓←→ + Enter", "Elegir una miniatura y abrirla"),
+		shortcutRow(g.keyText(actThumbGrid), "Abrir o cerrar la rejilla de páginas"),
+		shortcutRow("↑ ↓ ← → + Enter", "Elegir una miniatura y abrirla"),
+		shortcutRow(g.keyText(actWebtoon), "Modo tiras: todas las páginas en vertical, sin separación"),
 		sectionLabel("Zoom"),
-		shortcutRow("+ / −", "Aumentar o reducir el zoom"),
-		shortcutRow("0", "Ajustar la página al ancho"),
-		shortcutRow("1", "Zoom 100 % (1 píxel = 1 unidad Fyne)"),
+		shortcutRow(g.keyText(actZoomIn)+" / "+g.keyText(actZoomOut), "Aumentar o reducir el zoom"),
+		shortcutRow(g.keyText(actFitWidth), "Ajustar la página al ancho"),
+		shortcutRow(g.keyText(actZoom100), "Zoom 100 % (1 píxel = 1 unidad Fyne)"),
+		sectionLabel("Marcadores"),
+		shortcutRow(g.keyText(actBookmark), "Marcar la página actual o editar su marcador"),
+		shortcutRow("Menú Marcadores", "Ver, saltar y borrar los marcadores del cómic"),
 		sectionLabel("Ventana"),
-		shortcutRow("F11", "Modo limpio a pantalla completa (indicador de página arriba a la derecha)"),
+		shortcutRow(g.keyText(actCleanMode), "Modo limpio a pantalla completa (indicador de página arriba a la derecha)"),
 		shortcutRow("Esc", "Cancelar una carga larga / salir del modo limpio"),
 		shortcutRow("F1 o ?", "Mostrar esta ayuda"),
 		sectionLabel("Traducción"),
-		shortcutRow("T", "Reconocer y traducir la página actual"),
-		shortcutRow("T (otra vez)", "Ocultar la capa de traducción"),
+		shortcutRow(g.keyText(actTranslate), "Reconocer y traducir la página actual (no disponible en modo tiras)"),
+		shortcutRow(g.keyText(actTranslate)+" (otra vez)", "Ocultar la capa de traducción"),
 		shortcutRow("Traducción > Configuración", "Idioma, proveedor y clave API"),
 		sectionLabel("Archivo"),
 		shortcutRow("Ctrl+O", "Abrir un cómic"),
 		shortcutRow("Ctrl+R", "Cambiar a un cómic reciente"),
+		shortcutRow("Ctrl+,", "Preferencias: teclas, tema y el resto de opciones"),
 		shortcutRow("Arrastrar y soltar", "Abrir un .cbr/.cbz sobre la ventana"),
 		shortcutRow("Rueda", "Desplazar la página en ambos ejes"),
 	)

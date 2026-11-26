@@ -21,6 +21,7 @@ type readerState struct {
 	singlePage bool
 	manga      bool
 	loading    bool
+	webtoon    bool // modo tiras: páginas apiladas en vertical
 
 	// zoomFit mide la página al ancho disponible; en modo manual, zoomScale es
 	// la escala absoluta (1 = píxel de imagen = unidad Fyne).
@@ -86,6 +87,7 @@ func (s *readerState) clampIndex() {
 // resetProgress deja el lector al principio y con el zoom automático. Se usa al
 // abrir un cómic sin progreso guardado.
 func (s *readerState) resetProgress() {
+	s.webtoon = false
 	s.pageIndex = 0
 	s.half = 0
 	s.spread = false
@@ -103,6 +105,7 @@ func (s *readerState) restoreFrom(entry recentComic, total int) {
 	}
 	s.manga = entry.Manga
 	s.singlePage = entry.SinglePage
+	s.webtoon = entry.Webtoon
 	s.zoomFit = entry.ZoomFit
 	if entry.ZoomScale > 0 {
 		s.zoomScale = clampZoom(entry.ZoomScale)
@@ -121,6 +124,7 @@ func (s *readerState) progressEntry() (recentComic, bool) {
 		Total:      len(s.comic.Pages),
 		Manga:      s.manga,
 		SinglePage: s.singlePage,
+		Webtoon:    s.webtoon,
 		ZoomFit:    s.zoomFit,
 		ZoomScale:  s.zoomScale,
 	}, true

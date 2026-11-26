@@ -15,7 +15,6 @@ import (
 	"gutter/internal/cursor"
 	"gutter/internal/ocr"
 	"gutter/internal/screen"
-	"gutter/internal/theme"
 	"gutter/internal/ui"
 )
 
@@ -138,6 +137,18 @@ type gutterApp struct {
 	zoomScale float32
 	viewport  fyne.Size
 	cleanMode bool
+
+	// Modo tiras activo para el cómic abierto. Nil cuando se lee página a página.
+	strip *stripState
+
+	// Teclas asignadas a cada acción de lectura (ver keymap.go).
+	keymap map[shortcutAction]fyne.KeyName
+
+	// Marcadores de todos los cómics, guardados en preferencias (ver bookmarks.go).
+	bookmarks []bookmark
+
+	// Rectángulos dibujados a mano que se repintan al cambiar de tema.
+	surfaces []themedSurface
 }
 
 func NewGutterApp(a fyne.App) *gutterApp {
@@ -147,6 +158,8 @@ func NewGutterApp(a fyne.App) *gutterApp {
 	}
 	g.appCtx, g.appCancel = context.WithCancel(context.Background())
 	g.recents = loadRecents(g.prefs)
+	g.keymap = loadKeymap(g.prefs)
+	g.bookmarks = loadBookmarks(g.prefs)
 	g.diskCache = newAppDiskCache(a, g.prefs)
 
 	g.window = a.NewWindow(appTitle)
@@ -183,7 +196,7 @@ func NewGutterApp(a fyne.App) *gutterApp {
 
 	g.pageLayout = &ui.PageLayout{Width: 1, Height: 1}
 	g.pageCanvas = container.NewStack(
-		canvas.NewRectangle(theme.GutterCanvasColor()),
+		g.themedRect(canvasTint),
 		container.New(g.pageLayout, g.pageImage, g.translationImage),
 	)
 
@@ -197,12 +210,12 @@ func NewGutterApp(a fyne.App) *gutterApp {
 	g.cursorBlanker = cursor.NewCleanCursor(func() bool { return g.reader.cleanMode })
 	g.cursorBlanker.Hide()
 
-	g.pageBadge = newFloatingPill()
+	g.pageBadge = newFloatingPill(g.themedRect(pillTint))
 	g.pageBadgeOverlay = container.New(
 		&topRightLayout{margin: 16, child: g.pageBadge.root},
 		g.pageBadge.root,
 	)
-	g.gotoBadge = newFloatingPill()
+	g.gotoBadge = newFloatingPill(g.themedRect(pillTint))
 	g.gotoBadgeOverlay = container.New(
 		&topCenterLayout{margin: 14, child: g.gotoBadge.root},
 		g.gotoBadge.root,
@@ -223,7 +236,7 @@ func NewGutterApp(a fyne.App) *gutterApp {
 	retryButton.Importance = widget.HighImportance
 
 	errorCard := container.NewStack(
-		canvas.NewRectangle(theme.GutterPanelColor()),
+		g.themedRect(panelTint),
 		container.NewPadded(container.NewVBox(
 			container.NewCenter(g.pageErrorLabel),
 			container.NewCenter(g.pageErrorDetail),
@@ -236,7 +249,7 @@ func NewGutterApp(a fyne.App) *gutterApp {
 	readerLayout := &ui.ReaderLayout{OnResize: g.onReaderResize}
 	readerArea := container.New(
 		readerLayout,
-		canvas.NewRectangle(theme.GutterCanvasColor()),
+		g.themedRect(canvasTint),
 		g.scroll,
 		g.emptyState,
 		g.cursorBlanker,
@@ -374,6 +387,7 @@ func (g *gutterApp) shutdown() {
 // closeComic suelta el archivo actual. Close cancela primero el trabajo en
 // vuelo, así que la espera por disco o por un RAR sólido es corta.
 func (g *gutterApp) closeComic() {
+	g.leaveStrip()
 	comic := g.reader.comic
 	if comic == nil {
 		return

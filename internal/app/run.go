@@ -12,9 +12,9 @@ import (
 func Run() {
 	a := app.NewWithID("io.gutter.reader")
 
-	// Tema fijo: negro carbón + azul eléctrico. Se instala antes de crear la
-	// ventana para que todos los widgets se dibujen ya con la paleta Gutter.
-	a.Settings().SetTheme(theme.NewGutterTheme())
+	// El tema se elige en Preferencias (oscuro por defecto). Se instala antes de
+	// crear la ventana para que todos los widgets se dibujen ya con la paleta.
+	a.Settings().SetTheme(theme.NewGutterThemeVariant(a.Preferences().String(prefTheme) == "light"))
 
 	ui := NewGutterApp(a)
 

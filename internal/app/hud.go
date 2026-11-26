@@ -4,7 +4,6 @@ package app
 
 import (
 	"fmt"
-	"image/color"
 	"strconv"
 
 	"fyne.io/fyne/v2"
@@ -27,8 +26,7 @@ type floatingPill struct {
 	label *widget.Label
 }
 
-func newFloatingPill() *floatingPill {
-	background := canvas.NewRectangle(color.NRGBA{R: 0x12, G: 0x12, B: 0x12, A: 0xE8})
+func newFloatingPill(background *canvas.Rectangle) *floatingPill {
 	background.CornerRadius = 8
 
 	label := widget.NewLabelWithStyle("", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
