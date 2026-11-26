@@ -4,6 +4,18 @@ Todas las versiones publicadas de Gutter, con los cambios más visibles para
 quien usa el lector. El ejecutable de cada versión está en
 [Releases](https://github.com/Skeiceee/gutter/releases).
 
+## v1.4.2 — 2026-11-26
+
+Corrección del modo limpio.
+
+### Modo limpio
+
+- **La página ocupa toda la pantalla.** Antes quedaba una franja de 40 px en la
+  parte inferior con el fondo de la ventana, blanca o negra según el tema. El
+  layout raíz reservaba esa altura para la barra aunque estuviera oculta.
+- Pruebas de regresión del layout: sin barra el área de lectura mide el alto
+  completo; con barra visible se descuenta su altura.
+
 ## v1.4.1 — 2026-11-26
 
 Corrección del tema claro: logo, sombras y modo limpio.

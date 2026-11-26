@@ -40,12 +40,14 @@ func (l *RootLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
 	bar := objs[1]
 	reader := objs[0]
 
+	// Con la barra oculta (modo limpio) no se reserva nada: si se forzara una
+	// altura mínima, quedaría una franja del fondo de la ventana bajo la página.
 	barH := float32(0)
 	if bar.Visible() {
 		barH = bar.MinSize().Height
-	}
-	if barH < 1 {
-		barH = 40
+		if barH < 1 {
+			barH = 40
+		}
 	}
 	readerH := size.Height - barH
 	if readerH < 1 {

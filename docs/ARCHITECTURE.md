@@ -278,7 +278,10 @@ incrementa `gridSeq` para descartar resultados en vuelo y se vacía la capa.
 12. **Apertura asíncrona**: indexar un cómic nunca bloquea el hilo de UI. Cada
     apertura lleva una secuencia (`openSeq`); si el usuario abre otro archivo o
     pulsa `Esc`, el resultado viejo se cierra y se descarta.
-13. **Arranque ligero**: el escaneo de la caché de disco se hace en segundo
+13. **Modo limpio sin franjas**: al ocultar la barra inferior también se oculta
+    su sombra, y `RootLayout` no reserva altura para una barra invisible. Así la
+    página ocupa todo el alto en pantalla completa.
+14. **Arranque ligero**: el escaneo de la caché de disco se hace en segundo
     plano. Las escrituras toman el mismo mutex, así que el recuento inicial y
     las altas de páginas nunca se pisan.
 
