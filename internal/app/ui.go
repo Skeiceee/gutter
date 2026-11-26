@@ -10,7 +10,6 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"image/color"
 	"path/filepath"
 
 	"fyne.io/fyne/v2"
@@ -126,7 +125,8 @@ func (g *gutterApp) buildBottomBar() fyne.CanvasObject {
 	}
 
 	barBg := g.themedRect(panelTint)
-	barBg.Shadow.Color = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x99}
+	g.barBg = barBg
+	barBg.Shadow.Color = shadowTint()
 	barBg.Shadow.BlurRadius = 2
 	barBg.Shadow.Offset = fyne.NewPos(0, -1)
 	barBg.Shadow.Spread = 0
@@ -153,6 +153,7 @@ func (g *gutterApp) toggleCleanMode() {
 	if !g.reader.cleanMode {
 		g.reader.cleanMode = true
 		g.bottomBar.Hide()
+		g.bottomShadow.Hide()
 		// Archivo/Ver/Traducción/Ayuda sobre la página.
 		if g.mainMenu != nil {
 			g.window.SetMainMenu(nil)
@@ -162,6 +163,7 @@ func (g *gutterApp) toggleCleanMode() {
 	} else {
 		g.reader.cleanMode = false
 		g.bottomBar.Show()
+		g.bottomShadow.Show()
 		// Se reconstruye para que las marcas del menú Ver reflejen el estado
 		// actual aunque se hayan cambiado las preferencias en modo limpio.
 		g.installMenu()

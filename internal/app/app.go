@@ -149,6 +149,9 @@ type gutterApp struct {
 
 	// Rectángulos dibujados a mano que se repintan al cambiar de tema.
 	surfaces []themedSurface
+
+	// Barra inferior y su sombra, que cambian con el tema y se ocultan en modo limpio.
+	barBg *canvas.Rectangle
 }
 
 func NewGutterApp(a fyne.App) *gutterApp {
@@ -176,7 +179,7 @@ func NewGutterApp(a fyne.App) *gutterApp {
 	a.SetIcon(icon)
 	g.window.SetIcon(icon)
 
-	g.logo = loadBrandResource(logoCandidates...)
+	g.logo = loadBrandResource(logoCandidatesFor(g.lightTheme())...)
 
 	// Lienzo de página reutilizable. Nunca se sustituye el objeto. El tamaño lo
 	// impone pageLayout; FillStretch permite que el zoom sea independiente del
@@ -254,7 +257,7 @@ func NewGutterApp(a fyne.App) *gutterApp {
 		g.emptyState,
 		g.cursorBlanker,
 	)
-	g.bottomShadow = canvas.NewVerticalGradient(color.Transparent, color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x99})
+	g.bottomShadow = canvas.NewVerticalGradient(color.Transparent, shadowTint())
 	readerStack := container.New(
 		&ui.BottomShadowLayout{Height: 2},
 		readerArea,

@@ -141,6 +141,10 @@ Variante clara (`NewGutterThemeLight`): lienzo `#DCDCDC`, paneles `#F3F3F3`, tex
 
 Los rectángulos dibujados a mano (lienzo, barra inferior, pastillas, rejilla) fijan su color al crearse, así que se crean con `themedRect` y se repintan en `applyTheme`.
 
+La sombra de la barra inferior y su degradado usan `GutterShadowColor()` (negro con alfa `0x99` en el oscuro y `0x1F` en el claro). El degradado (`bottomShadow`) se oculta en modo limpio junto con la barra.
+
+El logo cambia con el tema mediante `logoCandidatesFor(light)`: el blanco sobre fondo oscuro y `logos/gutter_logo_principal.svg` sobre fondo claro. `applyTheme` lo recarga y refresca la portada.
+
 ### `internal/ui`
 
 Layouts personalizados y contenedores de Fyne:

@@ -24,6 +24,16 @@ func canvasTint() color.Color { return gtheme.GutterCanvasColor() }
 func panelTint() color.Color  { return gtheme.GutterPanelColor() }
 func pillTint() color.Color   { return gtheme.GutterOverlayColor(0xE8) }
 func gridTint() color.Color   { return gtheme.GutterOverlayColor(0xF4) }
+func shadowTint() color.Color { return gtheme.GutterShadowColor() }
+
+// logoCandidatesFor elige el logo según el tema: el blanco sobre fondo oscuro y
+// el de texto oscuro sobre fondo claro.
+func logoCandidatesFor(light bool) []string {
+	if light {
+		return []string{"logos/gutter_logo_principal.svg"}
+	}
+	return logoCandidates
+}
 
 // themedRect crea un rectángulo que sigue al tema activo.
 func (g *gutterApp) themedRect(tint func() color.Color) *canvas.Rectangle {
@@ -51,6 +61,16 @@ func (g *gutterApp) applyTheme(light bool) {
 		s.rect.FillColor = s.tint()
 		s.rect.Refresh()
 	}
+	if g.barBg != nil {
+		g.barBg.Shadow.Color = shadowTint()
+		g.barBg.Refresh()
+	}
+	if g.bottomShadow != nil {
+		g.bottomShadow.EndColor = shadowTint()
+		g.bottomShadow.Refresh()
+	}
+	g.logo = loadBrandResource(logoCandidatesFor(light)...)
+	g.refreshWelcome()
 	g.refreshStripColors()
 	if g.root != nil {
 		g.root.Refresh()

@@ -83,7 +83,7 @@ var lightPalette = palette{
 	selection:      color.NRGBA{R: 0xAD, G: 0xD6, B: 0xFF, A: 0xFF},
 	scrollBar:      color.NRGBA{R: 0xA8, G: 0xA8, B: 0xA8, A: 0xFF},
 	scrollBarBack:  color.NRGBA{R: 0xDC, G: 0xDC, B: 0xDC, A: 0xFF},
-	shadow:         color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x44},
+	shadow:         color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x1F},
 	hyperlink:      color.NRGBA{R: 0x00, G: 0x5A, B: 0x9E, A: 0xFF},
 	errorColor:     color.NRGBA{R: 0xC5, G: 0x1E, B: 0x1E, A: 0xFF},
 	success:        color.NRGBA{R: 0x0E, G: 0x7A, B: 0x5F, A: 0xFF},
@@ -249,6 +249,9 @@ func GutterOverlayColor(alpha uint8) color.Color {
 	c := active.overlay
 	return color.NRGBA{R: c.R, G: c.G, B: c.B, A: alpha}
 }
+
+// GutterShadowColor devuelve la sombra de la barra inferior de la paleta activa.
+func GutterShadowColor() color.Color { return active.shadow }
 
 // IsLight indica si la paleta activa es la clara.
 func IsLight() bool { return active.variant == theme.VariantLight }

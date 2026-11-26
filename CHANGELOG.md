@@ -4,6 +4,24 @@ Todas las versiones publicadas de Gutter, con los cambios más visibles para
 quien usa el lector. El ejecutable de cada versión está en
 [Releases](https://github.com/Skeiceee/gutter/releases).
 
+## v1.4.1 — 2026-11-26
+
+Corrección del tema claro: logo, sombras y modo limpio.
+
+### Tema claro
+
+- **Logo de texto oscuro** en el modo claro. Antes se usaba siempre la versión
+  blanca, que no se veía sobre el fondo claro. Cambia al instante al elegir el
+  tema, sin reiniciar.
+- **Sombra inferior más suave**: la barra y el borde inferior usan una sombra
+  propia del tema claro. Antes era un negro intenso que se veía como una línea.
+- El tema oscuro no cambia.
+
+### Modo limpio
+
+- **La sombra inferior se oculta** junto con la barra. Antes quedaba visible
+  como una línea oscura al entrar en pantalla completa.
+
 ## v1.4.0 — 2026-11-26
 
 Versión centrada en personalizar la lectura: marcadores, modo tiras, atajos
